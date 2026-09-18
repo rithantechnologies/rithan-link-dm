@@ -1,0 +1,1037 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta
+    name="viewport"
+    content="width=device-width,initial-scale=1"
+  >
+  <title>Rithan Link DM</title>
+  <link
+    rel="stylesheet"
+    href="/dashboard/styles.css"
+  >
+</head>
+
+<body>
+  <!-- LOGIN -->
+  <main id="loginView" class="login-shell">
+    <section class="login-art">
+      <div class="brand brand-light">
+        <div class="brand-mark">R</div>
+        <div>
+          <strong>Rithan Link DM</strong>
+          <span>Instagram Automation</span>
+        </div>
+      </div>
+
+      <div class="hero-copy">
+        <span class="eyebrow">
+          COMMENT → DM AUTOMATION
+        </span>
+
+        <h1>
+          Turn Instagram comments
+          into conversations.
+        </h1>
+
+        <p>
+          Connect Instagram, choose a post,
+          define a keyword, and automatically
+          deliver the right link in DM.
+        </p>
+
+        <div class="hero-flow">
+          <span>Comment</span>
+          <b>→</b>
+          <span>Keyword</span>
+          <b>→</b>
+          <span>DM</span>
+        </div>
+      </div>
+
+      <div class="login-art-footer">
+        Rithan Technologies
+      </div>
+    </section>
+
+    <section class="login-panel">
+      <form id="loginForm" class="login-card">
+        <div class="mobile-brand">
+          <div class="brand-mark">R</div>
+          <strong>Rithan Link DM</strong>
+        </div>
+
+        <span class="eyebrow dark">
+          WELCOME BACK
+        </span>
+
+        <h2>Sign in to your workspace</h2>
+
+        <p class="muted">
+          Manage your Instagram automations
+          from one place.
+        </p>
+
+        <label class="field">
+          <span>Email</span>
+          <input
+            id="loginEmail"
+            type="email"
+            autocomplete="email"
+            placeholder="you@example.com"
+            required
+          >
+        </label>
+
+        <label class="field">
+          <span>Password</span>
+          <input
+            id="loginPassword"
+            type="password"
+            autocomplete="current-password"
+            placeholder="Your password"
+            required
+          >
+        </label>
+
+        <button
+          id="loginButton"
+          class="button primary full"
+          type="submit"
+        >
+          Sign in
+        </button>
+
+        <p
+          id="loginError"
+          class="form-error"
+        ></p>
+      </form>
+    </section>
+  </main>
+
+
+  <!-- APP -->
+  <div id="appView" class="app-shell hidden">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">R</div>
+        <div>
+          <strong>Rithan Link DM</strong>
+          <span>Automation</span>
+        </div>
+      </div>
+
+      <nav class="nav">
+        <button
+          class="nav-item active"
+          data-page="overview"
+        >
+          <span class="nav-icon">⌂</span>
+          Overview
+        </button>
+
+        <button
+          class="nav-item"
+          data-page="automations"
+        >
+          <span class="nav-icon">⚡</span>
+          Automations
+        </button>
+
+        <button
+          class="nav-item"
+          data-page="instagram"
+        >
+          <span class="nav-icon">◎</span>
+          Instagram
+        </button>
+
+        <button
+          class="nav-item"
+          data-page="activity"
+        >
+          <span class="nav-icon">↗</span>
+          Activity
+        </button>
+
+        <button
+          class="nav-item"
+          data-page="analytics"
+        >
+          <span class="nav-icon">⌁</span>
+          Analytics
+        </button>
+
+        <button
+          class="nav-item"
+          data-page="plans"
+        >
+          <span class="nav-icon">◇</span>
+          Plans
+        </button>
+      </nav>
+
+      <div class="sidebar-bottom">
+        <div class="workspace-chip">
+          <span class="status-dot"></span>
+          <div>
+            <small>Workspace</small>
+            <strong id="sidebarWorkspace">
+              —
+            </strong>
+          </div>
+        </div>
+
+        <button
+          id="logoutButton"
+          class="nav-item logout"
+        >
+          Sign out
+        </button>
+      </div>
+    </aside>
+
+
+    <section class="main-area">
+      <header class="topbar">
+        <div>
+          <h1 id="pageTitle">Overview</h1>
+          <p id="pageSubtitle">
+            Your Instagram automation workspace.
+          </p>
+        </div>
+
+        <div class="topbar-actions">
+          <button
+            id="refreshButton"
+            class="icon-button"
+            title="Refresh"
+          >
+            ↻
+          </button>
+
+          <button
+            id="newAutomationTop"
+            class="button primary"
+          >
+            + New automation
+          </button>
+
+          <div class="profile">
+            <div
+              id="profileAvatar"
+              class="avatar"
+            >
+              R
+            </div>
+
+            <div>
+              <strong id="profileName">
+                —
+              </strong>
+              <span id="profileRole">
+                —
+              </span>
+            </div>
+          </div>
+        </div>
+      </header>
+
+
+      <div class="content">
+        <!-- OVERVIEW -->
+        <section
+          id="page-overview"
+          class="page"
+        >
+          <div class="welcome-card">
+            <div>
+              <span class="eyebrow">
+                RITHAN LINK DM
+              </span>
+
+              <h2 id="welcomeTitle">
+                Your automation command center
+              </h2>
+
+              <p>
+                Create comment-triggered Instagram
+                DMs and manage all connected accounts.
+              </p>
+            </div>
+
+            <button
+              id="newAutomationWelcome"
+              class="button light"
+            >
+              Create automation
+            </button>
+          </div>
+
+          <div class="stats-grid">
+            <article class="stat-card">
+              <div class="stat-icon">◎</div>
+              <div>
+                <span>Connected accounts</span>
+                <strong id="statAccounts">0</strong>
+              </div>
+            </article>
+
+            <article class="stat-card">
+              <div class="stat-icon">⚡</div>
+              <div>
+                <span>Active automations</span>
+                <strong id="statActive">0</strong>
+              </div>
+            </article>
+
+            <article class="stat-card">
+              <div class="stat-icon">▦</div>
+              <div>
+                <span>Total automations</span>
+                <strong id="statTotal">0</strong>
+              </div>
+            </article>
+
+            <article class="stat-card">
+              <div class="stat-icon">!</div>
+              <div>
+                <span>Needs attention</span>
+                <strong id="statAttention">0</strong>
+              </div>
+            </article>
+          </div>
+
+          <section class="panel plan-usage-panel">
+            <div
+              id="planUsage"
+              class="plan-usage"
+            >
+              <div class="empty-state">
+                Loading plan usage…
+              </div>
+            </div>
+          </section>
+
+          <div class="two-column">
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <h3>Recent automations</h3>
+                  <p>
+                    Your latest comment triggers.
+                  </p>
+                </div>
+
+                <button
+                  class="text-button"
+                  data-go="automations"
+                >
+                  View all →
+                </button>
+              </div>
+
+              <div
+                id="overviewAutomations"
+                class="automation-mini-list"
+              ></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <h3>Instagram accounts</h3>
+                  <p>
+                    Connection health.
+                  </p>
+                </div>
+
+                <button
+                  class="text-button"
+                  data-go="instagram"
+                >
+                  Manage →
+                </button>
+              </div>
+
+              <div
+                id="overviewAccounts"
+                class="account-mini-list"
+              ></div>
+            </section>
+          </div>
+        </section>
+
+
+        <!-- AUTOMATIONS -->
+        <section
+          id="page-automations"
+          class="page hidden"
+        >
+          <div class="section-toolbar">
+            <div>
+              <h2>Automations</h2>
+              <p>
+                Manage comment keywords and
+                automatic DM responses.
+              </p>
+            </div>
+
+            <button
+              id="newAutomationButton"
+              class="button primary"
+            >
+              + New automation
+            </button>
+          </div>
+
+          <div class="panel table-panel">
+            <div id="automationTable"></div>
+          </div>
+        </section>
+
+
+        <!-- ANALYTICS -->
+        <section
+          id="page-analytics"
+          class="page hidden"
+        >
+          <div class="section-toolbar">
+            <div>
+              <h2>Analytics</h2>
+              <p>
+                Measure comment and DM performance.
+              </p>
+            </div>
+
+            <div class="range-switch">
+              <button
+                class="range-button"
+                data-analytics-range="24h"
+              >
+                24h
+              </button>
+
+              <button
+                class="range-button active"
+                data-analytics-range="7d"
+              >
+                7 days
+              </button>
+
+              <button
+                class="range-button"
+                data-analytics-range="30d"
+              >
+                30 days
+              </button>
+            </div>
+          </div>
+
+          <div class="analytics-stats">
+            <article class="stat-card">
+              <div class="stat-icon">☰</div>
+              <div>
+                <span>Comments</span>
+                <strong id="analyticsComments">0</strong>
+              </div>
+            </article>
+
+            <article class="stat-card">
+              <div class="stat-icon">✓</div>
+              <div>
+                <span>DMs sent</span>
+                <strong id="analyticsDmSent">0</strong>
+              </div>
+            </article>
+
+            <article class="stat-card">
+              <div class="stat-icon">%</div>
+              <div>
+                <span>DM success rate</span>
+                <strong id="analyticsSuccessRate">—</strong>
+              </div>
+            </article>
+
+            <article class="stat-card">
+              <div class="stat-icon">↩</div>
+              <div>
+                <span>Public replies</span>
+                <strong id="analyticsReplies">0</strong>
+              </div>
+            </article>
+
+            <article class="stat-card">
+              <div class="stat-icon">!</div>
+              <div>
+                <span>DM failures</span>
+                <strong id="analyticsFailures">0</strong>
+              </div>
+            </article>
+          </div>
+
+          <section class="panel analytics-chart-panel">
+            <div class="panel-header">
+              <div>
+                <h3>Delivery activity</h3>
+                <p>
+                  Comments and successful DMs over time.
+                </p>
+              </div>
+
+              <div class="chart-legend">
+                <span>
+                  <i class="legend-comment"></i>
+                  Comments
+                </span>
+
+                <span>
+                  <i class="legend-dm"></i>
+                  DMs sent
+                </span>
+              </div>
+            </div>
+
+            <div
+              id="analyticsChart"
+              class="analytics-chart"
+            ></div>
+          </section>
+
+          <div class="two-column analytics-lists">
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <h3>Top automations</h3>
+                  <p>
+                    Ranked by successful DM deliveries.
+                  </p>
+                </div>
+              </div>
+
+              <div
+                id="analyticsAutomations"
+                class="analytics-ranking"
+              ></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <h3>Account performance</h3>
+                  <p>
+                    Results by Instagram account.
+                  </p>
+                </div>
+              </div>
+
+              <div
+                id="analyticsAccounts"
+                class="analytics-ranking"
+              ></div>
+            </section>
+          </div>
+        </section>
+
+
+        <!-- ACTIVITY -->
+        <section
+          id="page-activity"
+          class="page hidden"
+        >
+          <div class="section-toolbar">
+            <div>
+              <h2>Activity</h2>
+              <p>
+                Comment triggers, DM delivery
+                and public reply status.
+              </p>
+            </div>
+
+            <button
+              id="refreshActivityButton"
+              class="button secondary"
+            >
+              Refresh activity
+            </button>
+          </div>
+
+          <div class="stats-grid activity-stats">
+            <article class="stat-card">
+              <div class="stat-icon">☰</div>
+              <div>
+                <span>Recent comments</span>
+                <strong id="activityTotal">0</strong>
+              </div>
+            </article>
+
+            <article class="stat-card">
+              <div class="stat-icon">✓</div>
+              <div>
+                <span>DMs sent</span>
+                <strong id="activityDmSent">0</strong>
+              </div>
+            </article>
+
+            <article class="stat-card">
+              <div class="stat-icon">!</div>
+              <div>
+                <span>DM failures</span>
+                <strong id="activityDmFailed">0</strong>
+              </div>
+            </article>
+
+            <article class="stat-card">
+              <div class="stat-icon">↩</div>
+              <div>
+                <span>Public replies</span>
+                <strong id="activityReplies">0</strong>
+              </div>
+            </article>
+          </div>
+
+          <div class="activity-toolbar">
+            <select id="activityAccountFilter">
+              <option value="">
+                All Instagram accounts
+              </option>
+            </select>
+
+            <select id="activityStatusFilter">
+              <option value="">
+                All delivery statuses
+              </option>
+
+              <option value="sent">
+                DM sent
+              </option>
+
+              <option value="failed">
+                DM failed
+              </option>
+
+              <option value="pending">
+                Pending
+              </option>
+
+              <option value="ignored">
+                Ignored
+              </option>
+            </select>
+          </div>
+
+          <div class="panel table-panel">
+            <div id="activityTable"></div>
+          </div>
+        </section>
+
+
+        <!-- PLANS -->
+        <section
+          id="page-plans"
+          class="page hidden"
+        >
+          <div class="section-toolbar">
+            <div>
+              <h2>Plans</h2>
+              <p>
+                Choose the limits that fit your
+                Instagram automation workload.
+              </p>
+            </div>
+          </div>
+
+          <div class="plans-grid">
+
+            <article
+              class="plan-card"
+              data-plan-card="free"
+            >
+              <div class="plan-card-header">
+                <div>
+                  <span class="eyebrow">
+                    FREE
+                  </span>
+
+                  <h3>Free</h3>
+                </div>
+
+                <span
+                  class="badge success hidden"
+                  data-current-plan="free"
+                >
+                  Current plan
+                </span>
+              </div>
+
+              <p class="plan-description">
+                Test comment-to-DM automation
+                with a real Instagram account.
+              </p>
+
+              <div class="plan-features">
+                <div>
+                  <strong>1</strong>
+                  <span>Instagram account</span>
+                </div>
+
+                <div>
+                  <strong>3</strong>
+                  <span>Active automations</span>
+                </div>
+
+                <div>
+                  <strong>250</strong>
+                  <span>DMs / month</span>
+                </div>
+
+                <div>
+                  <strong>7 days</strong>
+                  <span>Activity history</span>
+                </div>
+              </div>
+
+              <button
+                class="button secondary plan-action"
+                data-plan-action="free"
+                type="button"
+              >
+                Free
+              </button>
+            </article>
+
+
+            <article
+              class="plan-card"
+              data-plan-card="starter"
+            >
+              <div class="plan-card-header">
+                <div>
+                  <span class="eyebrow">
+                    STARTER
+                  </span>
+
+                  <h3>Starter</h3>
+                </div>
+
+                <span
+                  class="badge success hidden"
+                  data-current-plan="starter"
+                >
+                  Current plan
+                </span>
+              </div>
+
+              <p class="plan-description">
+                For creators and businesses
+                running more automations.
+              </p>
+
+              <div class="plan-features">
+                <div>
+                  <strong>1</strong>
+                  <span>Instagram account</span>
+                </div>
+
+                <div>
+                  <strong>25</strong>
+                  <span>Active automations</span>
+                </div>
+
+                <div>
+                  <strong>5,000</strong>
+                  <span>DMs / month</span>
+                </div>
+
+                <div>
+                  <strong>90 days</strong>
+                  <span>Activity history</span>
+                </div>
+              </div>
+
+              <button
+                class="button primary plan-action"
+                data-plan-action="starter"
+                type="button"
+              >
+                Upgrade to Starter
+              </button>
+            </article>
+
+
+            <article
+              class="plan-card"
+              data-plan-card="pro"
+            >
+              <div class="plan-card-header">
+                <div>
+                  <span class="eyebrow">
+                    PRO
+                  </span>
+
+                  <h3>Pro</h3>
+                </div>
+
+                <span
+                  class="badge success hidden"
+                  data-current-plan="pro"
+                >
+                  Current plan
+                </span>
+              </div>
+
+              <p class="plan-description">
+                Multi-account capacity for
+                higher-volume businesses.
+              </p>
+
+              <div class="plan-features">
+                <div>
+                  <strong>2</strong>
+                  <span>Instagram accounts</span>
+                </div>
+
+                <div>
+                  <strong>100</strong>
+                  <span>Active automations</span>
+                </div>
+
+                <div>
+                  <strong>25,000</strong>
+                  <span>DMs / month</span>
+                </div>
+
+                <div>
+                  <strong>365 days</strong>
+                  <span>Activity history</span>
+                </div>
+              </div>
+
+              <button
+                class="button primary plan-action"
+                data-plan-action="pro"
+                type="button"
+              >
+                Upgrade to Pro
+              </button>
+            </article>
+
+          </div>
+
+          <div class="panel plan-platform-note">
+            <strong>
+              Instagram platform limits still apply.
+            </strong>
+
+            <p>
+              Plan allowances control Rithan Link DM
+              usage. They do not override Meta or
+              Instagram API restrictions.
+            </p>
+          </div>
+        </section>
+
+
+        <!-- INSTAGRAM -->
+        <section
+          id="page-instagram"
+          class="page hidden"
+        >
+          <div class="section-toolbar">
+            <div>
+              <h2>Instagram accounts</h2>
+              <p>
+                Professional accounts connected
+                to this workspace.
+              </p>
+            </div>
+
+            <button
+              id="connectInstagramButton"
+              class="button primary"
+            >
+              + Connect Instagram
+            </button>
+          </div>
+
+          <div
+            id="accountsGrid"
+            class="accounts-grid"
+          ></div>
+        </section>
+      </div>
+    </section>
+  </div>
+
+
+  <!-- AUTOMATION MODAL -->
+  <div
+    id="automationModal"
+    class="modal-backdrop hidden"
+  >
+    <section class="modal">
+      <header class="modal-header">
+        <div>
+          <span class="eyebrow dark">
+            AUTOMATION
+          </span>
+          <h2 id="modalTitle">
+            Create automation
+          </h2>
+        </div>
+
+        <button
+          id="closeModal"
+          class="modal-close"
+          type="button"
+        >
+          ×
+        </button>
+      </header>
+
+      <form id="automationForm">
+        <input
+          id="automationId"
+          type="hidden"
+        >
+
+        <div class="form-grid two">
+          <label class="field">
+            <span>Instagram account</span>
+            <select
+              id="automationAccount"
+              required
+            ></select>
+          </label>
+
+          <label class="field">
+            <span>Match mode</span>
+            <select id="matchMode">
+              <option value="exact">
+                Exact keyword
+              </option>
+              <option value="contains">
+                Contains keyword
+              </option>
+            </select>
+          </label>
+        </div>
+
+        <label class="field">
+          <span>Choose post or reel</span>
+
+          <input
+            id="selectedMediaId"
+            type="hidden"
+            required
+          >
+
+          <div
+            id="mediaPicker"
+            class="media-picker"
+          >
+            <div class="empty-state compact">
+              Choose an Instagram account first.
+            </div>
+          </div>
+        </label>
+
+        <div class="form-grid two">
+          <label class="field">
+            <span>Trigger keyword</span>
+            <input
+              id="automationKeyword"
+              type="text"
+              placeholder="LINK"
+              required
+            >
+          </label>
+
+          <label class="field">
+            <span>Destination URL</span>
+            <input
+              id="destinationUrl"
+              type="url"
+              placeholder="https://..."
+              required
+            >
+          </label>
+        </div>
+
+        <label class="field">
+          <span>DM message</span>
+          <textarea
+            id="dmTemplate"
+            rows="4"
+            placeholder="Thanks! Here is your link 👇 {{url}}"
+            required
+          ></textarea>
+
+          <small>
+            Use <code>{{url}}</code> and
+            <code>{{username}}</code> as variables.
+          </small>
+        </label>
+
+        <div class="toggle-row">
+          <div>
+            <strong>Public reply</strong>
+            <p>
+              Let the commenter know the DM was sent.
+            </p>
+          </div>
+
+          <label class="switch">
+            <input
+              id="publicReplyEnabled"
+              type="checkbox"
+            >
+            <span></span>
+          </label>
+        </div>
+
+        <label
+          id="publicReplyField"
+          class="field hidden"
+        >
+          <span>Public reply message</span>
+          <input
+            id="publicReplyTemplate"
+            type="text"
+            value="Sent it in DM 📩 If you don't see it, check Message Requests."
+          >
+        </label>
+
+        <footer class="modal-footer">
+          <button
+            id="cancelModal"
+            type="button"
+            class="button secondary"
+          >
+            Cancel
+          </button>
+
+          <button
+            id="saveAutomationButton"
+            type="submit"
+            class="button primary"
+          >
+            Save automation
+          </button>
+        </footer>
+      </form>
+    </section>
+  </div>
+
+
+  <!-- TOAST -->
+  <div
+    id="toast"
+    class="toast hidden"
+  ></div>
+
+  <script src="/dashboard/app.js"></script>
+</body>
+</html>

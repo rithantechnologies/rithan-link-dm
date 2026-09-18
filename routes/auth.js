@@ -1,0 +1,537 @@
+const express = require("express");
+const crypto = require("crypto");
+
+const pool = require("../db");
+
+const {
+  verifyPassword
+} = require("../lib/password");
+
+const {
+  COOKIE_NAME,
+  hashSessionToken,
+  getSessionToken,
+  requireAuth
+} = require("../lib/auth");
+
+const {
+  getLoginLimitStatus,
+  recordLoginFailure,
+  clearLoginFailures
+} = require("../lib/login-rate-limit");
+
+
+const {
+  requireSameOrigin
+} = require("../lib/same-origin");
+
+
+const {
+  enforceActiveSessionLimit
+} = require("../lib/session-maintenance");
+
+
+const {
+  safeAuditLog
+} = require("../lib/audit-log");
+
+const router =
+  express.Router();
+
+router.use(requireSameOrigin);
+
+const SESSION_DAYS =
+  Number(
+    process.env.SESSION_DAYS || 30
+  );
+
+function cookieSecure() {
+  return (
+    process.env.SESSION_COOKIE_SECURE !==
+    "false"
+  );
+}
+
+function cookieOptions() {
+  return {
+    httpOnly: true,
+    secure: cookieSecure(),
+    sameSite: "lax",
+    path: "/",
+    maxAge:
+      SESSION_DAYS *
+      24 *
+      60 *
+      60 *
+      1000
+  };
+}
+
+
+// --------------------------------------------------
+// POST /api/auth/login
+// --------------------------------------------------
+
+router.post(
+  "/login",
+
+  async (req, res) => {
+    try {
+      const email =
+        String(req.body?.email || "")
+          .trim()
+          .toLowerCase();
+
+      const password =
+        String(
+          req.body?.password || ""
+        );
+
+      if (!email || !password) {
+        return res.status(400).json({
+          error:
+            "email_and_password_required"
+        });
+      }
+
+
+
+      const clientIp =
+        req.ip ||
+        req.socket?.remoteAddress ||
+        "unknown";
+
+      const limitStatus =
+        await getLoginLimitStatus(
+          email,
+          clientIp
+        );
+
+      if (limitStatus.limited) {
+        const retryAfter =
+          Math.max(
+            limitStatus.retryAfterSeconds || 1,
+            1
+          );
+
+        res.set(
+          "Retry-After",
+          String(retryAfter)
+        );
+
+        return res.status(429).json({
+          error:
+            "too_many_login_attempts",
+
+          retryAfterSeconds:
+            retryAfter
+        });
+      }
+      const userResult =
+        await pool.query(
+          `
+          SELECT
+            id,
+            email,
+            password_hash,
+            display_name
+
+          FROM users
+
+          WHERE
+            LOWER(email) = LOWER($1)
+            AND status = 'active'
+
+          LIMIT 1
+          `,
+          [email]
+        );
+
+
+
+      if (
+        userResult.rowCount === 0
+      ) {
+        const failureUnknownUser =
+          await recordLoginFailure(
+            email,
+            clientIp
+          );
+
+        if (failureUnknownUser.limited) {
+          const retryAfter =
+            Math.max(
+              failureUnknownUser.retryAfterSeconds || 1,
+              1
+            );
+
+          res.set(
+            "Retry-After",
+            String(retryAfter)
+          );
+
+          return res.status(429).json({
+            error:
+              "too_many_login_attempts",
+
+            retryAfterSeconds:
+              retryAfter
+          });
+        }
+
+        return res.status(401).json({
+          error:
+            "invalid_credentials"
+        });
+      }
+
+      const user =
+        userResult.rows[0];
+
+      const valid =
+        await verifyPassword(
+          password,
+          user.password_hash
+        );
+
+
+
+      if (!valid) {
+        const failureInvalidPassword =
+          await recordLoginFailure(
+            email,
+            clientIp
+          );
+
+        if (failureInvalidPassword.limited) {
+          const retryAfter =
+            Math.max(
+              failureInvalidPassword.retryAfterSeconds || 1,
+              1
+            );
+
+          res.set(
+            "Retry-After",
+            String(retryAfter)
+          );
+
+          return res.status(429).json({
+            error:
+              "too_many_login_attempts",
+
+            retryAfterSeconds:
+              retryAfter
+          });
+        }
+
+        return res.status(401).json({
+          error:
+            "invalid_credentials"
+        });
+      }
+
+      await clearLoginFailures(
+        email,
+        clientIp
+      );
+
+      const membership =
+        await pool.query(
+          `
+          SELECT
+            w.id,
+            w.name,
+            wm.role
+
+          FROM workspace_members wm
+
+          JOIN workspaces w
+            ON w.id =
+               wm.workspace_id
+
+          WHERE
+            wm.user_id = $1
+            AND w.status = 'active'
+
+          ORDER BY
+            CASE wm.role
+              WHEN 'owner' THEN 1
+              WHEN 'admin' THEN 2
+              ELSE 3
+            END,
+            wm.created_at ASC
+
+          LIMIT 1
+          `,
+          [user.id]
+        );
+
+      if (
+        membership.rowCount === 0
+      ) {
+        return res.status(403).json({
+          error:
+            "no_active_workspace"
+        });
+      }
+
+      const workspace =
+        membership.rows[0];
+
+      const rawToken =
+        crypto
+          .randomBytes(32)
+          .toString("base64url");
+
+      const tokenHash =
+        hashSessionToken(
+          rawToken
+        );
+
+      await pool.query(
+        `
+        INSERT INTO user_sessions (
+          user_id,
+          active_workspace_id,
+          session_token_hash,
+          expires_at
+        )
+        VALUES (
+          $1,
+          $2,
+          $3,
+          NOW() +
+            ($4::double precision *
+             INTERVAL '1 day')
+        )
+        `,
+        [
+          user.id,
+          workspace.id,
+          tokenHash,
+          SESSION_DAYS
+        ]
+      );
+
+      try {
+        await enforceActiveSessionLimit(
+          pool,
+          user.id
+        );
+      } catch (limitError) {
+        console.error(
+          "Session limit enforcement failed:",
+          limitError.message
+        );
+      }
+
+
+
+      res.cookie(
+        COOKIE_NAME,
+        rawToken,
+        cookieOptions()
+      );
+
+      
+
+      await safeAuditLog({
+        workspaceId:
+          workspace.id,
+
+        userId:
+          user.id,
+
+        eventType:
+          "auth.login_success",
+
+        targetType:
+          "user",
+
+        targetId:
+          user.id,
+
+        ipAddress:
+          clientIp,
+
+        userAgent:
+          req.get("user-agent"),
+
+        metadata: {
+          email:
+            user.email
+        }
+      });
+
+
+return res.json({
+        user: {
+          id:
+            user.id,
+
+          email:
+            user.email,
+
+          displayName:
+            user.display_name
+        },
+
+        workspace: {
+          id:
+            workspace.id,
+
+          name:
+            workspace.name,
+
+          role:
+            workspace.role
+        }
+      });
+
+    } catch (error) {
+      console.error(
+        "Login failed:",
+        error.message
+      );
+
+      return res.sendStatus(500);
+    }
+  }
+);
+
+
+// --------------------------------------------------
+// GET /api/auth/me
+// --------------------------------------------------
+
+router.get(
+  "/me",
+  requireAuth,
+
+  (req, res) => {
+    return res.json({
+      user: {
+        id:
+          req.auth.userId,
+
+        email:
+          req.auth.email,
+
+        displayName:
+          req.auth.displayName
+      },
+
+      workspace: {
+        id:
+          req.auth.workspaceId,
+
+        name:
+          req.auth.workspaceName,
+
+        role:
+          req.auth.role
+      }
+    });
+  }
+);
+
+
+// --------------------------------------------------
+// POST /api/auth/logout
+// --------------------------------------------------
+
+router.post(
+  "/logout",
+
+  async (req, res) => {
+    try {
+      const token =
+        getSessionToken(req);
+
+      let revokedSession =
+        null;
+
+      if (token) {
+        const result =
+          await pool.query(
+            `
+            UPDATE user_sessions
+
+            SET revoked_at = NOW()
+
+            WHERE
+              session_token_hash = $1
+              AND revoked_at IS NULL
+
+            RETURNING
+              user_id,
+              active_workspace_id
+            `,
+            [
+              hashSessionToken(
+                token
+              )
+            ]
+          );
+
+        revokedSession =
+          result.rows[0] || null;
+      }
+
+      res.clearCookie(
+        COOKIE_NAME,
+        {
+          httpOnly: true,
+          secure:
+            cookieSecure(),
+          sameSite: "lax",
+          path: "/"
+        }
+      );
+
+      if (revokedSession) {
+        await safeAuditLog({
+          workspaceId:
+            revokedSession
+              .active_workspace_id,
+
+          userId:
+            revokedSession.user_id,
+
+          eventType:
+            "auth.logout",
+
+          targetType:
+            "user",
+
+          targetId:
+            revokedSession.user_id,
+
+          ipAddress:
+            req.ip,
+
+          userAgent:
+            req.get(
+              "user-agent"
+            ),
+
+          metadata: {}
+        });
+      }
+
+      return res.json({
+        loggedOut: true
+      });
+
+    } catch (error) {
+      console.error(
+        "Logout failed:",
+        error.message
+      );
+
+      return res.sendStatus(500);
+    }
+  }
+);
+
+module.exports = router;
