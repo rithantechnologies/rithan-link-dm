@@ -2,6 +2,7 @@ require("dotenv").config();
 
 const fs = require("fs");
 const path = require("path");
+const tls = require("tls");
 
 const {
   Queue
@@ -52,6 +53,86 @@ const maxDiskPercent =
       )
     )
   );
+
+const publicApiUrl =
+  new URL(
+    process.env.PUBLIC_API_URL ||
+    "https://api.rithantechnologies.com"
+  );
+
+function tlsDaysRemaining() {
+  return new Promise(
+    (resolve, reject) => {
+      const socket =
+        tls.connect(
+          {
+            host:
+              publicApiUrl.hostname,
+            port:
+              Number(
+                publicApiUrl.port ||
+                443
+              ),
+            servername:
+              publicApiUrl.hostname,
+            rejectUnauthorized:
+              true
+          },
+          () => {
+            try {
+              const cert =
+                socket.getPeerCertificate();
+
+              const expiresAt =
+                Date.parse(
+                  cert.valid_to
+                );
+
+              if (
+                !Number.isFinite(
+                  expiresAt
+                )
+              ) {
+                throw new Error(
+                  "certificate_expiry_missing"
+                );
+              }
+
+              resolve(
+                (
+                  expiresAt -
+                  Date.now()
+                ) /
+                86400000
+              );
+
+            } catch (error) {
+              reject(error);
+
+            } finally {
+              socket.end();
+            }
+          }
+        );
+
+      socket.setTimeout(
+        5000,
+        () => {
+          socket.destroy(
+            new Error(
+              "tls_timeout"
+            )
+          );
+        }
+      );
+
+      socket.once(
+        "error",
+        reject
+      );
+    }
+  );
+}
 
 function newestBackupAgeHours() {
   if (
@@ -165,6 +246,77 @@ async function main() {
 
   } finally {
     clearTimeout(timeout);
+  }
+
+  let publicStatus = null;
+  let tlsRemaining = null;
+
+  const publicController =
+    new AbortController();
+
+  const publicTimeout =
+    setTimeout(
+      () =>
+        publicController.abort(),
+      5000
+    );
+
+  try {
+    const response =
+      await fetch(
+        new URL(
+          "/health",
+          publicApiUrl
+        ),
+        {
+          signal:
+            publicController.signal
+        }
+      );
+
+    publicStatus =
+      response.status;
+
+    if (!response.ok) {
+      failures.push(
+        `public_health_http_${response.status}`
+      );
+    }
+
+  } catch (error) {
+    failures.push(
+      `public_health_unreachable:${error.name}`
+    );
+
+  } finally {
+    clearTimeout(
+      publicTimeout
+    );
+  }
+
+  try {
+    tlsRemaining =
+      await tlsDaysRemaining();
+
+    if (
+      tlsRemaining <= 7
+    ) {
+      failures.push(
+        `tls_expiry_critical:${tlsRemaining.toFixed(1)}d`
+      );
+
+    } else if (
+      tlsRemaining <= 21
+    ) {
+      warnings.push(
+        `tls_expiry_warning:${tlsRemaining.toFixed(1)}d`
+      );
+    }
+
+  } catch (error) {
+    failures.push(
+      `tls_check_failed:${error.message}`
+    );
   }
 
   const redis =
@@ -352,6 +504,18 @@ async function main() {
       Number(
         diskPercent.toFixed(2)
       ),
+
+    publicHealthStatus:
+      publicStatus,
+
+    tlsDaysRemaining:
+      Number.isFinite(
+        tlsRemaining
+      )
+        ? Number(
+            tlsRemaining.toFixed(1)
+          )
+        : null,
 
     connectedTokenCount:
       tokens.rowCount,
