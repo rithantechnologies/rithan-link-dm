@@ -42,6 +42,13 @@ const billingRouter =
 const adminRouter =
   require("./routes/admin");
 
+const settingsRouter =
+  require("./routes/settings");
+
+const {
+  requestObservability
+} = require("./lib/observability");
+
 const metaComplianceRouter =
   require("./routes/meta-compliance");
 
@@ -125,6 +132,8 @@ app.use((req, res, next) => {
 // This allows req.ip to resolve the real visitor IP
 // from X-Forwarded-For without trusting arbitrary proxies.
 app.set("trust proxy", "loopback");
+
+app.use(requestObservability);
 
 const PORT = process.env.PORT || 3100;
 const VERIFY_TOKEN = process.env.META_VERIFY_TOKEN;
@@ -228,6 +237,11 @@ app.use(
 app.use(
   "/api/billing",
   billingRouter
+);
+
+app.use(
+  "/api/settings",
+  settingsRouter
 );
 
 app.use(
@@ -475,7 +489,9 @@ app.post(
             "instagram-comment",
             {
               professionalAccountId,
-              value
+              value,
+              requestId:
+                req.requestId || null
             },
             {
               jobId

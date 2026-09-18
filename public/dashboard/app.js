@@ -5,6 +5,7 @@ const state = {
   activity: [],
   activitySummary: {},
   billingUsage: null,
+  settings: null,
   sessions: [],
   analytics: null,
   analyticsRange: "7d",
@@ -90,33 +91,52 @@ function toast(message) {
 
 
 
-function handleOAuthResult() {
-  const params =
-    new URLSearchParams(
-      window.location.search
-    );
+async function handleLaunchParams() {
+  const params = new URLSearchParams(window.location.search);
 
-  if (
-    params.get("instagram") !==
-    "connected"
-  ) {
-    return;
+  const invite = params.get("invite");
+  if (invite) {
+    try {
+      const result = await api("/api/settings/team/invitations/accept", {
+        method: "POST",
+        body: JSON.stringify({ token: invite })
+      });
+      toast(`Joined ${result.workspace?.name || "workspace"}.`);
+      window.location.replace("/dashboard/?page=settings");
+      return true;
+    } catch (error) {
+      toast(error.body?.error || "Invitation could not be accepted.");
+      params.delete("invite");
+    }
   }
 
-  const username =
-    params.get("username");
+  if (params.get("instagram") === "connected") {
+    const username = params.get("username");
+    toast(
+      username
+        ? `Instagram connected successfully — @${username} is ready.`
+        : "Instagram connected successfully."
+    );
 
-  toast(
-    username
-      ? `Instagram connected successfully — @${username} is ready.`
-      : "Instagram connected successfully."
-  );
+    if (canEditWorkspace() && state.automations.length === 0) {
+      changePage("automations");
+      await openAutomationModal();
+    } else {
+      changePage("instagram");
+    }
 
-  history.replaceState(
-    {},
-    "",
-    window.location.pathname
-  );
+    params.delete("instagram");
+    params.delete("username");
+  }
+
+  const requestedPage = params.get("page");
+  if (["overview","automations","instagram","activity","analytics","plans","settings"].includes(requestedPage)) {
+    changePage(requestedPage);
+  }
+
+  const next = params.toString();
+  history.replaceState({}, "", next ? `${window.location.pathname}?${next}` : window.location.pathname);
+  return false;
 }
 
 async function boot() {
@@ -128,7 +148,7 @@ async function boot() {
 
     await loadDashboard();
 
-    handleOAuthResult();
+    await handleLaunchParams();
 
   } catch (error) {
     showLogin();
@@ -184,6 +204,25 @@ function showApp() {
       ?.classList
       .remove("hidden");
   }
+
+  const editable =
+    ["owner", "admin"].includes(
+      String(workspace.role || "")
+    );
+
+  [
+    "#newAutomationTop",
+    "#newAutomationWelcome",
+    "#newAutomationButton",
+    "#connectInstagramButton"
+  ].forEach(selector => {
+    $(selector)
+      ?.classList
+      .toggle(
+        "hidden",
+        !editable
+      );
+  });
 }
 
 
@@ -193,13 +232,15 @@ async function loadDashboard() {
       accounts,
       automations,
       activity,
-      billingUsage
+      billingUsage,
+      settings
     ] =
       await Promise.all([
         api("/api/instagram/accounts"),
         api("/api/automations"),
         api("/api/activity?limit=100"),
-        api("/api/billing/usage")
+        api("/api/billing/usage"),
+        api("/api/settings")
       ]);
 
     state.accounts =
@@ -216,6 +257,9 @@ async function loadDashboard() {
 
     state.billingUsage =
       billingUsage || null;
+
+    state.settings =
+      settings || null;
 
     renderAll();
 
@@ -234,6 +278,7 @@ async function loadDashboard() {
 
 function renderAll() {
   renderOnboarding();
+  renderWorkspaceAlerts();
   renderStats();
   renderPlanUsage();
   renderPlans();
@@ -604,6 +649,69 @@ function renderOnboarding() {
     });
 }
 
+function renderWorkspaceAlerts() {
+  const root =
+    $("#workspaceAlerts");
+
+  if (!root) {
+    return;
+  }
+
+  const notifications =
+    (state.settings?.notifications || [])
+      .filter(item => !item.read_at)
+      .slice(0, 5);
+
+  if (!notifications.length) {
+    root.classList.add("hidden");
+    root.innerHTML = "";
+    return;
+  }
+
+  root.classList.remove("hidden");
+  root.innerHTML = notifications.map(item => `
+    <div class="workspace-alert ${escapeHtml(item.severity || "info")}">
+      <div>
+        <strong>${escapeHtml(item.title)}</strong>
+        <p>${escapeHtml(item.message)}</p>
+      </div>
+      <div class="workspace-alert-actions">
+        ${item.action_url ? `<a class="button secondary" href="${escapeHtml(item.action_url)}">Review</a>` : ""}
+        <button class="text-button" type="button" data-read-notification="${escapeHtml(item.id)}">Dismiss</button>
+      </div>
+    </div>
+  `).join("");
+
+  $$("[data-read-notification]")
+    .forEach(button => {
+      button.addEventListener("click", async () => {
+        try {
+          await api(
+            `/api/settings/notifications/${encodeURIComponent(button.dataset.readNotification)}/read`,
+            { method: "POST" }
+          );
+
+          const item =
+            state.settings.notifications.find(
+              entry =>
+                String(entry.id) ===
+                String(button.dataset.readNotification)
+            );
+
+          if (item) {
+            item.read_at =
+              new Date().toISOString();
+          }
+
+          renderWorkspaceAlerts();
+        } catch {
+          toast("Could not dismiss notification.");
+        }
+      });
+    });
+}
+
+
 function renderStats() {
   const connected =
     state.accounts.filter(
@@ -838,32 +946,13 @@ function renderAutomations() {
             </td>
 
             <td>
-              <div class="row-actions">
-                <button
-                  class="small-button"
-                  data-edit="${item.id}"
-                >
-                  Edit
-                </button>
-
-                <button
-                  class="small-button"
-                  data-toggle="${item.id}"
-                >
-                  ${
-                    item.active
-                      ? "Pause"
-                      : "Activate"
-                  }
-                </button>
-
-                <button
-                  class="small-button danger"
-                  data-delete="${item.id}"
-                >
-                  Delete
-                </button>
-              </div>
+              ${canEditWorkspace()
+                ? `<div class="row-actions">
+                    <button class="small-button" data-edit="${item.id}">Edit</button>
+                    <button class="small-button" data-toggle="${item.id}">${item.active ? "Pause" : "Activate"}</button>
+                    <button class="small-button danger" data-delete="${item.id}">Delete</button>
+                  </div>`
+                : `<span class="muted">Read only</span>`}
             </td>
           </tr>
         `).join("")}
@@ -1422,6 +1511,15 @@ function renderAnalytics() {
   const successEl =
     $("#analyticsSuccessRate");
 
+  const matchedEl =
+    $("#analyticsMatched");
+
+  const conversionEl =
+    $("#analyticsConversionRate");
+
+  const latencyEl =
+    $("#analyticsLatency");
+
   if (commentsEl) {
     commentsEl.textContent =
       Number(
@@ -1455,6 +1553,37 @@ function renderAnalytics() {
       summary.dmSuccessRate == null
         ? "—"
         : `${summary.dmSuccessRate}%`;
+  }
+
+  if (matchedEl) {
+    matchedEl.textContent =
+      Number(
+        summary.matchedComments || 0
+      );
+  }
+
+  if (conversionEl) {
+    conversionEl.textContent =
+      summary.commentToDmRate == null
+        ? "—"
+        : `${summary.commentToDmRate}%`;
+  }
+
+  if (latencyEl) {
+    const latency =
+      Number(
+        summary.avgDeliveryLatencyMs
+      );
+
+    latencyEl.textContent =
+      Number.isFinite(latency) &&
+      latency >= 0
+        ? (
+            latency < 1000
+              ? `${Math.round(latency)} ms`
+              : `${(latency / 1000).toFixed(1)} s`
+          )
+        : "—";
   }
 
   const historyDays =
@@ -1498,6 +1627,10 @@ function renderAnalytics() {
 
   renderAnalyticsAccounts(
     data.accounts || []
+  );
+
+  renderAnalyticsMedia(
+    data.topMedia || []
   );
 }
 
@@ -1777,6 +1910,79 @@ function renderAnalyticsAccounts(rows) {
 }
 
 
+function renderAnalyticsMedia(rows) {
+  const root =
+    $("#analyticsMedia");
+
+  if (!root) {
+    return;
+  }
+
+  if (!rows.length) {
+    root.innerHTML =
+      `<div class="empty-state">
+        No post or reel performance yet.
+      </div>`;
+    return;
+  }
+
+  root.innerHTML =
+    rows.map(row => {
+      const comments =
+        Number(
+          row.comments_received || 0
+        );
+      const matched =
+        Number(
+          row.matched_comments || 0
+        );
+      const sent =
+        Number(
+          row.dm_sent || 0
+        );
+      const failed =
+        Number(
+          row.dm_failed || 0
+        );
+      const rate =
+        matched > 0
+          ? Math.round(
+              sent / matched * 100
+            )
+          : 0;
+      const latency =
+        row.avg_delivery_latency_ms == null
+          ? "—"
+          : (
+              Number(row.avg_delivery_latency_ms) < 1000
+                ? `${Math.round(Number(row.avg_delivery_latency_ms))} ms`
+                : `${(Number(row.avg_delivery_latency_ms) / 1000).toFixed(1)} s`
+            );
+
+      return `
+        <div class="ranking-row">
+          <div class="ig-mini">▣</div>
+          <div class="ranking-main">
+            <div class="ranking-title">
+              <strong>
+                @${escapeHtml(row.instagram_username || "instagram")}
+                · ${escapeHtml(String(row.instagram_media_id || "").slice(-10))}
+              </strong>
+              <span>${sent} sent · ${rate}% matched→DM</span>
+            </div>
+            <div class="account-metrics">
+              <span>${comments} comments</span>
+              <span>${matched} matched</span>
+              <span>${failed} failed</span>
+              <span>${escapeHtml(latency)} avg</span>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join("");
+}
+
+
 function renderPlans() {
   const billing =
     state.billingUsage;
@@ -1835,52 +2041,289 @@ function renderPlans() {
         return;
       }
 
+      const commercial =
+        billing.commercial || {};
+
+      const target =
+        commercial.purchaseUrl ||
+        commercial.contactUrl ||
+        null;
+
+      if (
+        commercial.mode ===
+        "private_beta"
+      ) {
+        button.textContent =
+          target
+            ? "Contact us for access"
+            : "Private beta";
+
+        button.disabled =
+          !target;
+
+        button.onclick =
+          target
+            ? () =>
+                window.location.assign(
+                  target
+                )
+            : null;
+
+        return;
+      }
+
       button.textContent =
-        "Coming soon";
+        target
+          ? "Upgrade"
+          : "Contact us";
 
       button.disabled =
-        true;
+        !target;
+
+      button.onclick =
+        target
+          ? () =>
+              window.location.assign(
+                target
+              )
+          : null;
     });
 }
 
 
+function canEditWorkspace() {
+  return ["owner", "admin"].includes(
+    String(state.me?.workspace?.role || "")
+  );
+}
+
 function renderSettings() {
   const user = state.me?.user || {};
   const workspace = state.me?.workspace || {};
+  const settings = state.settings || {};
+  const ws = settings.workspace || {};
+  const permissions = settings.permissions || {};
 
   $("#settingsEmail").textContent = user.email || "—";
-  $("#settingsWorkspace").textContent = workspace.name || "—";
+  $("#settingsWorkspace").textContent = ws.name || workspace.name || "—";
   $("#settingsRole").textContent = workspace.role || "—";
 
-  const root = $("#sessionList");
+  if ($("#workspaceName")) {
+    $("#workspaceName").value = ws.name || workspace.name || "";
+    $("#workspaceTimezone").value = ws.timezone || "UTC";
+    $("#workspaceNotificationEmail").value = ws.notification_email || "";
+    $("#notifyTokenExpiry").checked = ws.notify_token_expiry !== false;
+    $("#notifyFailures").checked = ws.notify_failures !== false;
 
-  if (!state.sessions.length) {
-    root.innerHTML = `<div class="empty-state">No active sessions.</div>`;
-    return;
+    $$("#workspaceSettingsForm input, #workspaceSettingsForm select, #workspaceSettingsForm button")
+      .forEach(el => {
+        el.disabled = permissions.editWorkspace !== true;
+      });
   }
 
-  root.innerHTML = state.sessions.map(session => `
-    <div class="settings-session-row">
-      <div>
-        <strong>${session.is_current ? "Current session" : "Active session"}</strong>
-        <span>
-          Last seen ${escapeHtml(formatActivityTime(session.last_seen_at))}
-          · expires ${escapeHtml(formatActivityTime(session.expires_at))}
-        </span>
-      </div>
-      <span class="badge ${session.is_current ? "success" : "muted"}">
-        ${session.is_current ? "This device" : "Active"}
-      </span>
-    </div>`).join("");
+  const root = $("#sessionList");
+  if (root) {
+    root.innerHTML = state.sessions.length
+      ? state.sessions.map(session => `
+          <div class="settings-session-row">
+            <div>
+              <strong>${escapeHtml(session.device_label || (session.is_current ? "Current device" : "Unknown device"))}</strong>
+              <span>
+                ${session.ip_address ? `${escapeHtml(session.ip_address)} · ` : ""}
+                created ${escapeHtml(formatActivityTime(session.created_at))}
+                · last seen ${escapeHtml(formatActivityTime(session.last_seen_at))}
+                · expires ${escapeHtml(formatActivityTime(session.expires_at))}
+              </span>
+            </div>
+            <div class="settings-session-actions">
+              <span class="badge ${session.is_current ? "success" : "muted"}">
+                ${session.is_current ? "This device" : "Active"}
+              </span>
+              ${session.is_current ? "" : `<button class="button secondary compact" type="button" data-revoke-session="${escapeHtml(session.id)}">Revoke</button>`}
+            </div>
+          </div>`).join("")
+      : `<div class="empty-state">No active sessions.</div>`;
+
+    $$('[data-revoke-session]').forEach(button => {
+      button.addEventListener('click', async () => {
+        button.disabled = true;
+        try {
+          await api(`/api/auth/sessions/${encodeURIComponent(button.dataset.revokeSession)}/revoke`, {
+            method: 'POST',
+            body: JSON.stringify({})
+          });
+          toast('Session revoked.');
+          await loadSettings();
+        } catch (error) {
+          toast(error.body?.error || 'Could not revoke session.');
+        } finally {
+          button.disabled = false;
+        }
+      });
+    });
+  }
+
+  const membersRoot = $("#teamMembers");
+  if (membersRoot) {
+    const members = settings.members || [];
+    membersRoot.innerHTML = members.length
+      ? `<div class="settings-list"><h4>Members</h4>${members.map(member => {
+          const owner = member.role === 'owner';
+          const canManageRole = permissions.manageRoles === true && !owner;
+          const canRemove = !owner && member.id !== user.id && (
+            permissions.manageRoles === true ||
+            (workspace.role === 'admin' && member.role === 'member')
+          );
+          return `<div class="settings-session-row">
+            <div>
+              <strong>${escapeHtml(member.display_name || member.email)}</strong>
+              <span>${escapeHtml(member.email)} · ${escapeHtml(member.status)}</span>
+            </div>
+            <div class="settings-session-actions">
+              ${canManageRole ? `<select class="team-role-select" data-member-role="${escapeHtml(member.id)}"><option value="member" ${member.role === 'member' ? 'selected' : ''}>Member</option><option value="admin" ${member.role === 'admin' ? 'selected' : ''}>Admin</option></select>` : `<span class="badge muted">${escapeHtml(member.role)}</span>`}
+              ${canRemove ? `<button class="button secondary compact" type="button" data-remove-member="${escapeHtml(member.id)}">Remove</button>` : ''}
+            </div>
+          </div>`;
+        }).join('')}</div>`
+      : `<div class="empty-state">No workspace members.</div>`;
+
+    $$('[data-member-role]').forEach(select => {
+      select.addEventListener('change', async () => {
+        select.disabled = true;
+        try {
+          await api(`/api/settings/team/members/${encodeURIComponent(select.dataset.memberRole)}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ role: select.value })
+          });
+          toast('Member role updated.');
+          await loadSettings();
+        } catch (error) {
+          toast(error.body?.error || 'Could not update role.');
+          await loadSettings();
+        }
+      });
+    });
+
+    $$('[data-remove-member]').forEach(button => {
+      button.addEventListener('click', async () => {
+        button.disabled = true;
+        try {
+          await api(`/api/settings/team/members/${encodeURIComponent(button.dataset.removeMember)}`, {
+            method: 'DELETE',
+            body: JSON.stringify({})
+          });
+          toast('Member removed.');
+          await loadSettings();
+        } catch (error) {
+          toast(error.body?.error || 'Could not remove member.');
+        } finally {
+          button.disabled = false;
+        }
+      });
+    });
+  }
+
+  const invitationsRoot = $("#teamInvitations");
+  if (invitationsRoot) {
+    const invitations = settings.invitations || [];
+    invitationsRoot.innerHTML = invitations.length
+      ? `<div class="settings-list"><h4>Pending invitations</h4>${invitations.map(invite => `<div class="settings-session-row"><div><strong>${escapeHtml(invite.email)}</strong><span>${escapeHtml(invite.role)} · expires ${escapeHtml(formatActivityTime(invite.expires_at))}</span></div><button class="button secondary compact" type="button" data-revoke-invite="${escapeHtml(invite.id)}">Revoke</button></div>`).join('')}</div>`
+      : '';
+
+    $$('[data-revoke-invite]').forEach(button => {
+      button.addEventListener('click', async () => {
+        button.disabled = true;
+        try {
+          await api(`/api/settings/team/invitations/${encodeURIComponent(button.dataset.revokeInvite)}`, {
+            method: 'DELETE',
+            body: JSON.stringify({})
+          });
+          toast('Invitation revoked.');
+          await loadSettings();
+        } catch (error) {
+          toast(error.body?.error || 'Could not revoke invitation.');
+        } finally {
+          button.disabled = false;
+        }
+      });
+    });
+  }
+
+  const inviteForm = $("#teamInviteForm");
+  if (inviteForm) {
+    const enabled = permissions.inviteMembers === true;
+    $$(`#teamInviteForm input, #teamInviteForm select, #teamInviteForm button`)
+      .forEach(el => { el.disabled = !enabled; });
+    if (workspace.role !== 'owner' && $("#teamInviteRole")) {
+      $("#teamInviteRole").value = 'member';
+      $("#teamInviteRole").disabled = true;
+    }
+  }
 }
 
 async function loadSettings() {
   try {
-    const result = await api("/api/auth/sessions");
-    state.sessions = result.sessions || [];
+    const [sessions, settings] = await Promise.all([
+      api("/api/auth/sessions"),
+      api("/api/settings")
+    ]);
+    state.sessions = sessions.sessions || [];
+    state.settings = settings || null;
+    if (settings?.workspace?.name && state.me?.workspace) {
+      state.me.workspace.name = settings.workspace.name;
+      $("#sidebarWorkspace").textContent = settings.workspace.name;
+    }
+    renderWorkspaceAlerts();
     renderSettings();
   } catch {
     toast("Could not load account settings.");
+  }
+}
+
+async function saveWorkspaceSettings(event) {
+  event.preventDefault();
+  try {
+    const result = await api('/api/settings/workspace', {
+      method: 'PATCH',
+      body: JSON.stringify({
+        name: $("#workspaceName").value.trim(),
+        timezone: $("#workspaceTimezone").value.trim(),
+        notificationEmail: $("#workspaceNotificationEmail").value.trim(),
+        notifyTokenExpiry: $("#notifyTokenExpiry").checked,
+        notifyFailures: $("#notifyFailures").checked
+      })
+    });
+    if (state.settings) state.settings.workspace = result.workspace;
+    if (state.me?.workspace) state.me.workspace.name = result.workspace.name;
+    $("#sidebarWorkspace").textContent = result.workspace.name;
+    toast('Workspace settings saved.');
+    renderSettings();
+  } catch (error) {
+    toast(error.body?.error || 'Could not save workspace settings.');
+  }
+}
+
+async function createTeamInvitation(event) {
+  event.preventDefault();
+  try {
+    const result = await api('/api/settings/team/invitations', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: $("#teamInviteEmail").value.trim(),
+        role: $("#teamInviteRole").value
+      })
+    });
+    $("#teamInviteForm").reset();
+    const inviteUrl = new URL(result.inviteUrl, window.location.origin).toString();
+    try {
+      await navigator.clipboard.writeText(inviteUrl);
+      toast('Invitation created and link copied.');
+    } catch {
+      toast(`Invitation created: ${inviteUrl}`);
+    }
+    await loadSettings();
+  } catch (error) {
+    toast(error.body?.error || 'Could not create invitation.');
   }
 }
 
@@ -2622,6 +3065,7 @@ async function login(event) {
 
     showApp();
     await loadDashboard();
+    await handleLaunchParams();
 
   } catch (error) {
     errorEl.textContent =
@@ -2747,6 +3191,18 @@ async function connectInstagram() {
 }
 
 function bindEvents() {
+
+  $("#workspaceSettingsForm")
+    ?.addEventListener(
+      "submit",
+      saveWorkspaceSettings
+    );
+
+  $("#teamInviteForm")
+    ?.addEventListener(
+      "submit",
+      createTeamInvitation
+    );
 
   $("#changePasswordForm")
     ?.addEventListener(

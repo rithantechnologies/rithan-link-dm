@@ -60,6 +60,19 @@ const publicApiUrl =
     "https://api.rithantechnologies.com"
   );
 
+const opsAlertWebhookUrl =
+  process.env.OPS_ALERT_WEBHOOK_URL ||
+  null;
+
+const maxOldestJobAgeSeconds =
+  Math.max(
+    30,
+    Number(
+      process.env.QUEUE_OLDEST_JOB_ALERT_SECONDS ||
+      300
+    )
+  );
+
 function tlsDaysRemaining() {
   return new Promise(
     (resolve, reject) => {
@@ -171,6 +184,55 @@ function newestBackupAgeHours() {
     Date.now() -
     Math.max(...dumps)
   ) / 3600000;
+}
+
+async function sendOpsAlert(result) {
+  if (!opsAlertWebhookUrl) {
+    return;
+  }
+
+  const controller =
+    new AbortController();
+
+  const timeout =
+    setTimeout(
+      () => controller.abort(),
+      5000
+    );
+
+  try {
+    const response =
+      await fetch(
+        opsAlertWebhookUrl,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json"
+          },
+          body: JSON.stringify({
+            source:
+              "rithan-link-dm",
+            ...result
+          }),
+          signal:
+            controller.signal
+        }
+      );
+
+    if (!response.ok) {
+      throw new Error(
+        `alert_webhook_http_${response.status}`
+      );
+    }
+  } catch (error) {
+    console.error(
+      "Ops alert webhook failed:",
+      error.message
+    );
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function diskUsagePercent() {
@@ -333,6 +395,8 @@ async function main() {
       }
     );
 
+  let queueStats = null;
+
   try {
     const counts =
       await queue.getJobCounts(
@@ -343,6 +407,14 @@ async function main() {
         "paused"
       );
 
+    const pending =
+      await queue.getJobs(
+        ["waiting", "delayed"],
+        0,
+        0,
+        true
+      );
+
     const backlog =
       Number(
         counts.waiting || 0
@@ -350,6 +422,25 @@ async function main() {
       Number(
         counts.delayed || 0
       );
+
+    const oldestPendingAgeSeconds =
+      pending[0]?.timestamp
+        ? Math.max(
+            0,
+            Math.round(
+              (
+                Date.now() -
+                pending[0].timestamp
+              ) / 1000
+            )
+          )
+        : null;
+
+    queueStats = {
+      ...counts,
+      backlog,
+      oldestPendingAgeSeconds
+    };
 
     if (
       Number(
@@ -367,6 +458,16 @@ async function main() {
     ) {
       failures.push(
         `queue_backlog:${backlog}`
+      );
+    }
+
+    if (
+      oldestPendingAgeSeconds !== null &&
+      oldestPendingAgeSeconds >
+        maxOldestJobAgeSeconds
+    ) {
+      failures.push(
+        `queue_oldest_job_age_seconds:${oldestPendingAgeSeconds}`
       );
     }
 
@@ -520,6 +621,9 @@ async function main() {
     connectedTokenCount:
       tokens.rowCount,
 
+    queue:
+      queueStats,
+
     warnings,
     failures
   };
@@ -531,6 +635,38 @@ async function main() {
       2
     )
   );
+
+  if (
+    failures.length ||
+    warnings.length
+  ) {
+    const severity =
+      failures.length
+        ? "critical"
+        : "warning";
+
+    try {
+      await pool.query(
+        `INSERT INTO service_events
+         (service_name,severity,event_type,message,metadata)
+         VALUES ('health-check',$1,'production_health',$2,$3::jsonb)`,
+        [
+          severity,
+          failures.length
+            ? failures.join("; ")
+            : warnings.join("; "),
+          JSON.stringify(result)
+        ]
+      );
+    } catch (error) {
+      console.error(
+        "Health event persistence failed:",
+        error.message
+      );
+    }
+
+    await sendOpsAlert(result);
+  }
 
   if (failures.length) {
     process.exitCode = 1;

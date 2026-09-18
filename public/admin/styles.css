@@ -533,3 +533,24 @@ tbody tr:hover {
     min-width: 0;
   }
 }
+
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.button.small {
+  padding: 7px 10px;
+  font-size: 12px;
+}
+
+#systemQueue,
+#systemEvents {
+  margin-top: 4px;
+}
+
+#page-system > .panel {
+  margin-top: 18px;
+}

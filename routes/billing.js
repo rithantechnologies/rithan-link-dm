@@ -137,6 +137,26 @@ router.get(
           monthlyDm:
             entitlements
               .monthlyDmLimitReached
+        },
+
+        commercial: {
+          mode:
+            process.env.BILLING_PURCHASE_MODE ||
+            "private_beta",
+
+          checkoutEnabled:
+            Boolean(
+              process.env.BILLING_CHECKOUT_URL
+            ),
+
+          contactUrl:
+            process.env.BILLING_CONTACT_URL ||
+            null,
+
+          purchaseUrl:
+            process.env.BILLING_CHECKOUT_URL ||
+            process.env.BILLING_CONTACT_URL ||
+            null
         }
       });
 

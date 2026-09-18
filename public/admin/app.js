@@ -4,6 +4,7 @@ const state = {
   workspaces: [],
   errors: [],
   system: null,
+  queue: null,
   currentPage: "overview"
 };
 
@@ -218,7 +219,7 @@ async function openWorkspace(id) {
       </section>
       <section class="detail-card">
         <h3>Automations</h3>
-        ${detail.automations.length ? `<div class="list">${detail.automations.map(automation => `<div class="list-row"><div><strong>${escapeHtml(automation.keyword)} · @${escapeHtml(automation.instagram_username || "instagram")}</strong><small>${escapeHtml(automation.match_mode)} · public reply ${automation.public_reply_enabled ? "on" : "off"}</small></div><span class="badge ${automation.active ? "good" : "warn"}">${automation.active ? "Active" : "Paused"}</span></div>`).join("")}</div>` : `<div class="empty">No automations.</div>`}
+        ${detail.automations.length ? `<div class="list">${detail.automations.map(automation => `<div class="list-row"><div><strong>${escapeHtml(automation.keyword)} · @${escapeHtml(automation.instagram_username || "instagram")}</strong><small>${escapeHtml(automation.match_mode)} · public reply ${automation.public_reply_enabled ? "on" : "off"}</small></div><div class="row-actions"><span class="badge ${automation.active ? "good" : "warn"}">${automation.active ? "Active" : "Paused"}</span>${automation.active ? `<button class="button small" data-pause-automation="${escapeHtml(automation.id)}" data-workspace-id="${escapeHtml(w.id)}">Pause</button>` : ""}</div></div>`).join("")}</div>` : `<div class="empty">No automations.</div>`}
       </section>
       <section class="detail-card">
         <h3>Recent activity</h3>
@@ -228,6 +229,21 @@ async function openWorkspace(id) {
         <h3>Recent audit events</h3>
         ${detail.audit.length ? `<div class="list">${detail.audit.slice(0, 15).map(item => `<div class="list-row"><div><strong>${escapeHtml(item.event_type)}</strong><small>${escapeHtml(formatDate(item.created_at))}</small></div></div>`).join("")}</div>` : `<div class="empty">No audit events.</div>`}
       </section>`;
+
+    $$('[data-pause-automation]').forEach(button => {
+      button.addEventListener('click', async () => {
+        button.disabled = true;
+        try {
+          await api(`/api/admin/workspaces/${encodeURIComponent(button.dataset.workspaceId)}/automations/${encodeURIComponent(button.dataset.pauseAutomation)}/pause`, { method: 'POST' });
+          toast('Automation paused.');
+          await openWorkspace(button.dataset.workspaceId);
+        } catch (error) {
+          toast(error.body?.error || 'Could not pause automation.');
+        } finally {
+          button.disabled = false;
+        }
+      });
+    });
 
     $("#drawerBackdrop").classList.remove("hidden");
     $("#workspaceDrawer").classList.remove("hidden");
@@ -250,9 +266,27 @@ function renderErrors() {
 
   root.innerHTML = `
     <table>
-      <thead><tr><th>Time</th><th>Workspace</th><th>Instagram</th><th>Source</th><th>Code</th><th>Failure</th></tr></thead>
-      <tbody>${state.errors.map(item => `<tr><td>${escapeHtml(formatDate(item.occurred_at))}</td><td>${escapeHtml(item.workspace_name || "—")}</td><td>@${escapeHtml(item.instagram_username || "instagram")}</td><td>${escapeHtml(item.source)}</td><td class="mono">${escapeHtml(item.failure_code || "—")}</td><td class="error-text">${escapeHtml(item.failure_message || "—")}</td></tr>`).join("")}</tbody>
+      <thead><tr><th>Time</th><th>Workspace</th><th>Instagram</th><th>Source</th><th>Code</th><th>Failure</th><th>Action</th></tr></thead>
+      <tbody>${state.errors.map(item => `<tr><td>${escapeHtml(formatDate(item.occurred_at))}</td><td>${escapeHtml(item.workspace_name || "—")}</td><td>@${escapeHtml(item.instagram_username || "instagram")}</td><td>${escapeHtml(item.source)}</td><td class="mono">${escapeHtml(item.failure_code || "—")}</td><td class="error-text">${escapeHtml(item.failure_message || "—")}</td><td><button class="button small" data-retry-delivery="${escapeHtml(item.source)}" data-comment-id="${escapeHtml(item.comment_id)}">Retry</button></td></tr>`).join("")}</tbody>
     </table>`;
+
+  $$("[data-retry-delivery]").forEach(button => {
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      try {
+        await api(
+          `/api/admin/errors/${encodeURIComponent(button.dataset.retryDelivery)}/${encodeURIComponent(button.dataset.commentId)}/retry`,
+          { method: "POST" }
+        );
+        toast("Retry queued.");
+        await loadErrors();
+      } catch (error) {
+        toast(error.body?.error || "Retry failed.");
+      } finally {
+        button.disabled = false;
+      }
+    });
+  });
 }
 
 async function loadErrors() {
@@ -287,12 +321,69 @@ function renderSystem() {
       }).join("")}</div>`
     : `<div class="empty">No connected tokens.</div>`;
 
+  const queue = state.queue || {};
+  const counts = queue.counts || data.queue || {};
+  const failed = queue.failed || [];
+
+  $("#systemQueue").innerHTML = `
+    <div class="metric-grid">
+      ${metricCard("Waiting", counts.waiting || 0, "Ready to process")}
+      ${metricCard("Active", counts.active || 0, "Currently processing")}
+      ${metricCard("Delayed", counts.delayed || 0, "Scheduled retries")}
+      ${metricCard("Failed", counts.failed || 0, "Retained dead letters")}
+      ${metricCard("Oldest pending", data.queue?.oldestPendingAgeSeconds == null ? "—" : `${data.queue.oldestPendingAgeSeconds}s`, "Queue age")}
+    </div>
+    ${failed.length ? `<div class="list">${failed.map(job => `
+      <div class="list-row">
+        <div>
+          <strong>${escapeHtml(job.name)} · ${escapeHtml(job.id)}</strong>
+          <small>${escapeHtml(job.failedReason || "Unknown failure")} · attempts ${escapeHtml(job.attemptsMade)}</small>
+        </div>
+        <button class="button small" data-retry-job="${escapeHtml(job.id)}">Retry job</button>
+      </div>`).join("")}</div>` : `<div class="empty">No failed queue jobs.</div>`}
+  `;
+
+  $$("[data-retry-job]").forEach(button => {
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      try {
+        await api(
+          `/api/admin/queue/${encodeURIComponent(button.dataset.retryJob)}/retry`,
+          { method: "POST" }
+        );
+        toast("Queue job retried.");
+        await loadSystem();
+      } catch (error) {
+        toast(error.body?.error || "Queue retry failed.");
+      } finally {
+        button.disabled = false;
+      }
+    });
+  });
+
+  const events = data.events || [];
+  $("#systemEvents").innerHTML = events.length
+    ? `<div class="list">${events.map(item => `
+        <div class="list-row">
+          <div>
+            <strong>${escapeHtml(item.event_type)}</strong>
+            <small>${escapeHtml(item.service_name)} · ${escapeHtml(formatDate(item.created_at))}<br>${escapeHtml(item.message || "")}</small>
+          </div>
+          <span class="badge ${["error","critical"].includes(item.severity) ? "bad" : item.severity === "warning" ? "warn" : "good"}">${escapeHtml(item.severity)}</span>
+        </div>`).join("")}</div>`
+    : `<div class="empty">No warning/error events in the last 24 hours.</div>`;
+
   renderOverviewSystem();
 }
 
 async function loadSystem() {
   try {
-    state.system = await api("/api/admin/system");
+    const [system, queue] = await Promise.all([
+      api("/api/admin/system"),
+      api("/api/admin/queue")
+    ]);
+    state.system = system;
+    state.queue = queue;
     renderSystem();
   } catch {
     toast("Could not load system status.");

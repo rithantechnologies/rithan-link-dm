@@ -17,6 +17,10 @@ const {
 } = require("../lib/audit-log");
 
 const {
+  requireWorkspaceEditor
+} = require("../lib/workspace-policy");
+
+const {
   subscriptionAllowsUsage,
   getWorkspaceEntitlements,
   getWorkspaceActiveAutomationCount
@@ -195,7 +199,7 @@ router.get("/", async (req, res) => {
 // POST /api/automations
 // --------------------------------------------------
 
-router.post("/", async (req, res) => {
+router.post("/", requireWorkspaceEditor, async (req, res) => {
   try {
     const workspace =
       workspaceId(req);
@@ -482,7 +486,7 @@ router.post("/", async (req, res) => {
 // PATCH /api/automations/:id
 // --------------------------------------------------
 
-router.patch("/:id", async (req, res) => {
+router.patch("/:id", requireWorkspaceEditor, async (req, res) => {
   try {
     const workspace =
       workspaceId(req);
@@ -909,7 +913,7 @@ router.patch("/:id", async (req, res) => {
 // DELETE /api/automations/:id
 // --------------------------------------------------
 
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", requireWorkspaceEditor, async (req, res) => {
   try {
     const workspace =
       workspaceId(req);

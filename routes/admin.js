@@ -6,6 +6,18 @@ const {
   requireAuth
 } = require("../lib/auth");
 
+const {
+  requireSameOrigin
+} = require("../lib/same-origin");
+
+const {
+  safeAuditLog
+} = require("../lib/audit-log");
+
+const {
+  instagramQueue
+} = require("../lib/instagram-queue");
+
 const router =
   express.Router();
 
@@ -24,6 +36,8 @@ router.use((req, res, next) => {
 
   next();
 });
+
+router.use(requireSameOrigin);
 
 function limitValue(
   value,
@@ -932,6 +946,48 @@ router.get(
           `)
         ]);
 
+      const [
+        queueCounts,
+        pendingJobs,
+        events
+      ] = await Promise.all([
+        instagramQueue.getJobCounts(
+          "waiting",
+          "active",
+          "delayed",
+          "failed",
+          "completed",
+          "paused"
+        ),
+        instagramQueue.getJobs(
+          ["waiting", "delayed"],
+          0,
+          0,
+          true
+        ),
+        pool.query(
+          `SELECT service_name,severity,event_type,request_id,
+                  workspace_id,message,metadata,created_at
+           FROM service_events
+           WHERE created_at >= NOW()-INTERVAL '24 hours'
+           ORDER BY created_at DESC
+           LIMIT 100`
+        )
+      ]);
+
+      const oldestPending =
+        pendingJobs[0] || null;
+
+      const oldestPendingAgeSeconds =
+        oldestPending?.timestamp
+          ? Math.max(
+              0,
+              Math.round(
+                (Date.now() - oldestPending.timestamp) / 1000
+              )
+            )
+          : null;
+
       return res.json({
         api: {
           status: "healthy",
@@ -943,8 +999,19 @@ router.get(
         services:
           heartbeat.rows,
 
+        queue: {
+          ...queueCounts,
+          backlog:
+            Number(queueCounts.waiting || 0) +
+            Number(queueCounts.delayed || 0),
+          oldestPendingAgeSeconds
+        },
+
         tokens:
-          tokens.rows
+          tokens.rows,
+
+        events:
+          events.rows
       });
 
     } catch (error) {
@@ -953,6 +1020,215 @@ router.get(
         error.message
       );
 
+      return res.sendStatus(500);
+    }
+  }
+);
+
+router.get("/queue", async (req, res) => {
+  try {
+    const [counts, failed] = await Promise.all([
+      instagramQueue.getJobCounts(
+        "waiting", "active", "delayed",
+        "failed", "completed", "paused"
+      ),
+      instagramQueue.getJobs(["failed"], 0, 49, false)
+    ]);
+
+    return res.json({
+      counts,
+      failed: failed.map(job => ({
+        id: job.id,
+        name: job.name,
+        attemptsMade: job.attemptsMade,
+        failedReason: job.failedReason || null,
+        timestamp: job.timestamp,
+        processedOn: job.processedOn || null,
+        finishedOn: job.finishedOn || null,
+        commentId:
+          job.data?.value?.id ||
+          job.data?.commentId ||
+          null,
+        professionalAccountId:
+          job.data?.professionalAccountId ||
+          null
+      }))
+    });
+  } catch (error) {
+    console.error("Admin queue lookup failed:", error.message);
+    return res.sendStatus(500);
+  }
+});
+
+router.post("/queue/:id/retry", async (req, res) => {
+  try {
+    const job = await instagramQueue.getJob(req.params.id);
+    if (!job) {
+      return res.status(404).json({ error: "queue_job_not_found" });
+    }
+
+    await job.retry();
+
+    await safeAuditLog({
+      workspaceId: req.auth.workspaceId,
+      userId: req.auth.userId,
+      eventType: "admin.queue_job_retried",
+      targetType: "queue_job",
+      targetId: String(job.id),
+      ipAddress: req.ip,
+      userAgent: req.get("user-agent"),
+      metadata: { jobName: job.name }
+    });
+
+    return res.json({ retried: true, jobId: job.id });
+  } catch (error) {
+    console.error("Admin queue retry failed:", error.message);
+    return res.status(409).json({
+      error: "queue_job_retry_failed",
+      message: error.message
+    });
+  }
+});
+
+router.post(
+  "/workspaces/:workspaceId/automations/:automationId/pause",
+  async (req, res) => {
+    try {
+      const result = await pool.query(
+        `UPDATE automations a
+         SET active=FALSE, updated_at=NOW()
+         FROM instagram_accounts ia
+         JOIN LATERAL (
+           SELECT ic.workspace_id
+           FROM instagram_connections ic
+           WHERE ic.instagram_account_id=ia.id
+           ORDER BY ic.connected_at DESC,ic.created_at DESC
+           LIMIT 1
+         ) latest ON TRUE
+         WHERE a.id=$1
+           AND a.instagram_account_id=ia.id
+           AND latest.workspace_id=$2
+         RETURNING a.id,a.keyword,a.active`,
+        [
+          req.params.automationId,
+          req.params.workspaceId
+        ]
+      );
+
+      if (!result.rowCount) {
+        return res.status(404).json({ error: "automation_not_found" });
+      }
+
+      await safeAuditLog({
+        workspaceId: req.params.workspaceId,
+        userId: req.auth.userId,
+        eventType: "admin.automation_paused",
+        targetType: "automation",
+        targetId: req.params.automationId,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent"),
+        metadata: { keyword: result.rows[0].keyword }
+      });
+
+      return res.json({ automation: result.rows[0] });
+    } catch (error) {
+      console.error("Admin automation pause failed:", error.message);
+      return res.sendStatus(500);
+    }
+  }
+);
+
+router.post(
+  "/errors/:source/:commentId/retry",
+  async (req, res) => {
+    try {
+      const source = String(req.params.source);
+      if (!["dm", "public_reply"].includes(source)) {
+        return res.status(400).json({ error: "invalid_retry_source" });
+      }
+
+      const result = await pool.query(
+        `SELECT
+           pc.comment_id,pc.instagram_media_id,pc.commenter_id,
+           pc.commenter_username,pc.comment_text,
+           ia.professional_account_id,
+           latest.workspace_id,
+           dl.status AS dm_status,
+           pr.status AS public_reply_status
+         FROM processed_comments pc
+         JOIN instagram_accounts ia ON ia.id=pc.instagram_account_id
+         JOIN LATERAL (
+           SELECT ic.workspace_id
+           FROM instagram_connections ic
+           WHERE ic.instagram_account_id=ia.id
+           ORDER BY ic.connected_at DESC,ic.created_at DESC
+           LIMIT 1
+         ) latest ON TRUE
+         LEFT JOIN dm_logs dl ON dl.comment_id=pc.comment_id
+         LEFT JOIN public_reply_logs pr ON pr.comment_id=pc.comment_id
+         WHERE pc.comment_id=$1
+         LIMIT 1`,
+        [req.params.commentId]
+      );
+
+      const row = result.rows[0];
+      if (!row) {
+        return res.status(404).json({ error: "failed_delivery_not_found" });
+      }
+      if (source === "dm" && row.dm_status !== "failed") {
+        return res.status(409).json({ error: "dm_not_failed" });
+      }
+      if (source === "public_reply" && row.public_reply_status !== "failed") {
+        return res.status(409).json({ error: "public_reply_not_failed" });
+      }
+
+      const nonce = Date.now();
+      if (source === "dm") {
+        await instagramQueue.add(
+          "instagram-comment",
+          {
+            professionalAccountId: row.professional_account_id,
+            value: {
+              id: row.comment_id,
+              media: { id: row.instagram_media_id },
+              from: {
+                id: row.commenter_id,
+                username: row.commenter_username
+              },
+              text: row.comment_text || ""
+            }
+          },
+          { jobId: `admin-retry-dm-${row.comment_id}-${nonce}` }
+        );
+      } else {
+        await instagramQueue.add(
+          "instagram-public-reply",
+          {
+            commentId: row.comment_id,
+            professionalAccountId: row.professional_account_id
+          },
+          { jobId: `admin-retry-reply-${row.comment_id}-${nonce}` }
+        );
+      }
+
+      await safeAuditLog({
+        workspaceId: row.workspace_id,
+        userId: req.auth.userId,
+        eventType: "admin.delivery_retry_queued",
+        targetType: source,
+        targetId: row.comment_id,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent"),
+        metadata: { source }
+      });
+
+      return res.json({
+        queued: true,
+        source,
+        commentId: row.comment_id
+      });
+    } catch (error) {
+      console.error("Admin delivery retry failed:", error.message);
       return res.sendStatus(500);
     }
   }

@@ -204,7 +204,50 @@ router.get("/", async (req, res) => {
                   AND ic.workspace_id = $1
               )
           )::int
-            AS public_replies_sent
+            AS public_replies_sent,
+
+          (
+            SELECT COUNT(*)
+            FROM processed_comments pc
+            WHERE
+              pc.received_at >= $2
+              AND pc.automation_id IS NOT NULL
+              AND EXISTS (
+                SELECT 1
+                FROM instagram_connections ic
+                WHERE
+                  ic.instagram_account_id =
+                    pc.instagram_account_id
+                  AND ic.workspace_id = $1
+              )
+          )::int
+            AS matched_comments,
+
+          (
+            SELECT AVG(
+              EXTRACT(
+                EPOCH FROM (
+                  dl.sent_at - pc.received_at
+                )
+              ) * 1000
+            )
+            FROM dm_logs dl
+            JOIN processed_comments pc
+              ON pc.comment_id = dl.comment_id
+            WHERE
+              dl.status = 'sent'
+              AND dl.sent_at IS NOT NULL
+              AND dl.created_at >= $2
+              AND EXISTS (
+                SELECT 1
+                FROM instagram_connections ic
+                WHERE
+                  ic.instagram_account_id =
+                    dl.instagram_account_id
+                  AND ic.workspace_id = $1
+              )
+          )::numeric
+            AS avg_delivery_latency_ms
         `,
         [
           workspaceId,
@@ -234,6 +277,47 @@ router.get("/", async (req, res) => {
             ).toFixed(1)
           )
         : null;
+
+    const matchedComments =
+      Number(
+        rawSummary.matched_comments || 0
+      );
+
+    const commentsReceived =
+      Number(
+        rawSummary.comments_received || 0
+      );
+
+    const matchedConversionRate =
+      matchedComments > 0
+        ? Number(
+            (
+              dmSent /
+              matchedComments *
+              100
+            ).toFixed(1)
+          )
+        : null;
+
+    const commentToDmRate =
+      commentsReceived > 0
+        ? Number(
+            (
+              dmSent /
+              commentsReceived *
+              100
+            ).toFixed(1)
+          )
+        : null;
+
+    const avgDeliveryLatencyMs =
+      rawSummary.avg_delivery_latency_ms === null
+        ? null
+        : Math.round(
+            Number(
+              rawSummary.avg_delivery_latency_ms
+            )
+          );
 
 
     // ----------------------------------------------
@@ -472,6 +556,83 @@ router.get("/", async (req, res) => {
         ]
       );
 
+    const mediaResult =
+      await pool.query(
+        `
+        SELECT
+          pc.instagram_media_id,
+          ia.username
+            AS instagram_username,
+
+          COUNT(DISTINCT pc.comment_id)::int
+            AS comments_received,
+
+          COUNT(DISTINCT pc.comment_id) FILTER (
+            WHERE pc.automation_id IS NOT NULL
+          )::int
+            AS matched_comments,
+
+          COUNT(DISTINCT dl.id) FILTER (
+            WHERE dl.status = 'sent'
+          )::int
+            AS dm_sent,
+
+          COUNT(DISTINCT dl.id) FILTER (
+            WHERE dl.status = 'failed'
+          )::int
+            AS dm_failed,
+
+          AVG(
+            EXTRACT(
+              EPOCH FROM (
+                dl.sent_at - pc.received_at
+              )
+            ) * 1000
+          ) FILTER (
+            WHERE
+              dl.status = 'sent'
+              AND dl.sent_at IS NOT NULL
+          )::numeric
+            AS avg_delivery_latency_ms
+
+        FROM processed_comments pc
+
+        JOIN instagram_accounts ia
+          ON ia.id =
+             pc.instagram_account_id
+
+        LEFT JOIN dm_logs dl
+          ON dl.comment_id =
+             pc.comment_id
+
+        WHERE
+          pc.received_at >= $2
+
+          AND EXISTS (
+            SELECT 1
+            FROM instagram_connections ic
+            WHERE
+              ic.instagram_account_id =
+                pc.instagram_account_id
+              AND ic.workspace_id = $1
+          )
+
+        GROUP BY
+          pc.instagram_media_id,
+          ia.username
+
+        ORDER BY
+          dm_sent DESC,
+          matched_comments DESC
+
+        LIMIT 10
+        `,
+        [
+          workspaceId,
+          startAt
+        ]
+      );
+
 
     return res.json({
       range:
@@ -495,10 +656,9 @@ router.get("/", async (req, res) => {
         startAt.toISOString(),
 
       summary: {
-        commentsReceived:
-          Number(
-            rawSummary.comments_received || 0
-          ),
+        commentsReceived,
+
+        matchedComments,
 
         dmSent,
 
@@ -506,6 +666,12 @@ router.get("/", async (req, res) => {
 
         dmSuccessRate:
           successRate,
+
+        matchedConversionRate,
+
+        commentToDmRate,
+
+        avgDeliveryLatencyMs,
 
         publicRepliesSent:
           Number(
@@ -518,6 +684,19 @@ router.get("/", async (req, res) => {
 
       topAutomations:
         automationResult.rows,
+
+      topMedia:
+        mediaResult.rows.map(item => ({
+          ...item,
+          avg_delivery_latency_ms:
+            item.avg_delivery_latency_ms === null
+              ? null
+              : Math.round(
+                  Number(
+                    item.avg_delivery_latency_ms
+                  )
+                )
+        })),
 
       accounts:
         accountResult.rows

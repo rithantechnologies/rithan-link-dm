@@ -292,6 +292,12 @@
             class="panel onboarding-panel hidden"
           ></section>
 
+          <section
+            id="workspaceAlerts"
+            class="workspace-alerts hidden"
+            aria-live="polite"
+          ></section>
+
           <div class="stats-grid">
             <article class="stat-card">
               <div class="stat-icon">◎</div>
@@ -492,6 +498,30 @@
                 <strong id="analyticsFailures">0</strong>
               </div>
             </article>
+
+            <article class="stat-card">
+              <div class="stat-icon">⚡</div>
+              <div>
+                <span>Matched triggers</span>
+                <strong id="analyticsMatched">0</strong>
+              </div>
+            </article>
+
+            <article class="stat-card">
+              <div class="stat-icon">↗</div>
+              <div>
+                <span>Comment → DM</span>
+                <strong id="analyticsConversionRate">—</strong>
+              </div>
+            </article>
+
+            <article class="stat-card">
+              <div class="stat-icon">⏱</div>
+              <div>
+                <span>Avg delivery</span>
+                <strong id="analyticsLatency">—</strong>
+              </div>
+            </article>
           </div>
 
           <section class="panel analytics-chart-panel">
@@ -555,6 +585,21 @@
               ></div>
             </section>
           </div>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h3>Top posts / reels</h3>
+                <p>
+                  Trigger and delivery performance by Instagram media.
+                </p>
+              </div>
+            </div>
+            <div
+              id="analyticsMedia"
+              class="analytics-ranking"
+            ></div>
+          </section>
         </section>
 
 
@@ -903,6 +948,55 @@
             <section class="panel settings-panel">
               <div class="panel-header">
                 <div>
+                  <h3>Workspace preferences</h3>
+                  <p>
+                    Business identity, timezone and operational notifications.
+                  </p>
+                </div>
+              </div>
+
+              <form id="workspaceSettingsForm" class="settings-form">
+                <label class="field">
+                  <span>Workspace name</span>
+                  <input id="workspaceName" type="text" maxlength="120" required>
+                </label>
+
+                <label class="field">
+                  <span>Timezone</span>
+                  <input id="workspaceTimezone" type="text" list="timezoneOptions" placeholder="Asia/Kolkata" required>
+                  <datalist id="timezoneOptions">
+                    <option value="UTC"></option>
+                    <option value="Asia/Kolkata"></option>
+                    <option value="America/New_York"></option>
+                    <option value="Europe/London"></option>
+                    <option value="Australia/Sydney"></option>
+                  </datalist>
+                </label>
+
+                <label class="field">
+                  <span>Notification email</span>
+                  <input id="workspaceNotificationEmail" type="email" placeholder="ops@example.com">
+                </label>
+
+                <label class="settings-check">
+                  <input id="notifyTokenExpiry" type="checkbox">
+                  <span>Warn me before Instagram tokens expire</span>
+                </label>
+
+                <label class="settings-check">
+                  <input id="notifyFailures" type="checkbox">
+                  <span>Alert me when a delivery exhausts all retries</span>
+                </label>
+
+                <button id="saveWorkspaceSettings" class="button primary" type="submit">
+                  Save workspace settings
+                </button>
+              </form>
+            </section>
+
+            <section class="panel settings-panel">
+              <div class="panel-header">
+                <div>
                   <h3>Change password</h3>
                   <p>
                     Minimum 12 characters. Other
@@ -955,6 +1049,39 @@
                   Change password
                 </button>
               </form>
+            </section>
+
+            <section class="panel settings-panel settings-team">
+              <div class="panel-header">
+                <div>
+                  <h3>Team</h3>
+                  <p>
+                    Owners control roles. Admins can invite members.
+                  </p>
+                </div>
+              </div>
+
+              <form id="teamInviteForm" class="settings-form team-invite-form">
+                <label class="field">
+                  <span>Email</span>
+                  <input id="teamInviteEmail" type="email" placeholder="teammate@example.com" required>
+                </label>
+
+                <label class="field">
+                  <span>Role</span>
+                  <select id="teamInviteRole">
+                    <option value="member">Member · read only</option>
+                    <option value="admin">Admin · manage automations</option>
+                  </select>
+                </label>
+
+                <button class="button primary" type="submit">
+                  Create invitation
+                </button>
+              </form>
+
+              <div id="teamMembers"></div>
+              <div id="teamInvitations"></div>
             </section>
 
             <section class="panel settings-panel settings-sessions">

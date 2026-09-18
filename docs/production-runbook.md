@@ -1,0 +1,137 @@
+# Rithan Link DM Production Runbook
+
+## Service map
+
+- API: `rithan-link-dm.service`
+- Worker: `rithan-link-dm-worker.service`
+- PostgreSQL: durable product, auth, audit, notification and operational state
+- Redis/BullMQ: Instagram webhook work queue and rate-limit state
+- Nginx: TLS termination and reverse proxy
+- Public API: `https://api.rithantechnologies.com`
+
+## Normal health checks
+
+```bash
+systemctl is-active rithan-link-dm.service rithan-link-dm-worker.service
+curl -fsS http://127.0.0.1:3100/health
+curl -fsS http://127.0.0.1:3100/ready
+npm run healthcheck
+```
+
+Expected readiness is database=ok and redis=ok. The production health check also validates public HTTPS, TLS lifetime, queue backlog/age, retained failed jobs, backup age, disk usage and Instagram token lifetime.
+
+## Deploy
+
+```bash
+git status --short
+npm ci
+npm run check
+npm test
+npm audit --omit=dev --audit-level=high
+npm run migrate
+```
+
+Only after all gates pass:
+
+```bash
+systemctl restart rithan-link-dm.service rithan-link-dm-worker.service
+curl -fsS http://127.0.0.1:3100/ready
+```
+
+Confirm the worker heartbeat in Admin > System and verify the public `/health`, `/ready`, `/dashboard/` and `/admin/` surfaces.
+
+## Queue incident
+
+Admin > System shows waiting, active, delayed, failed and oldest-pending age. Failed BullMQ jobs are retained as dead letters and can be retried from Admin.
+
+If backlog age grows while the worker heartbeat is fresh, inspect worker logs and Redis before restarting anything:
+
+```bash
+journalctl -u rithan-link-dm-worker.service -n 200 --no-pager
+redis-cli PING
+```
+
+Use the Admin retry action only after the underlying error is understood. Delivery retries are auditable.
+
+## Instagram token / reconnect incident
+
+Token refresh runs automatically. Customers receive in-product warnings at approximately 14, 7, 3 and 1 days before expiry. A token that Meta marks unusable becomes `reauth_required` and creates a critical reconnect notification.
+
+Do not manually edit encrypted token columns. Have the workspace owner/admin complete the normal Instagram reconnect flow. Successful refresh/reconnect resolves prior token warnings.
+
+## Customer delivery failure
+
+1. Check Admin > Errors for the failure message/code.
+2. Check Admin > System for queue health and worker heartbeat.
+3. Fix the underlying account/token/platform issue.
+4. Use Retry on the failed DM/public reply.
+5. Confirm the activity changes to sent/completed.
+
+When a job exhausts every BullMQ attempt, the workspace receives a critical in-product notification if failure notifications are enabled.
+
+## Database backup and restore
+
+A systemd timer creates PostgreSQL custom-format backups and verifies them.
+
+```bash
+systemctl status rithan-link-dm-backup.timer
+npm run backup
+npm run backup:verify
+```
+
+For a restore drill, use a disposable database only:
+
+```bash
+npm run backup:verify -- --database <disposable_database_name>
+```
+
+Never restore over production during a drill. Record the drill date, backup filename, verification result and restore duration.
+
+## Redis durability
+
+Redis must use persistence in production. Check:
+
+```bash
+redis-cli CONFIG GET appendonly save dir dbfilename
+```
+
+AOF is preferred in addition to RDB snapshots for queue durability. If Redis data is lost, Meta may retry webhooks that were not acknowledged, but already-acknowledged queued work can be lost; therefore Redis persistence is part of the production recovery boundary.
+
+## Session/security incident
+
+Customers can review device/browser, IP, created/last-seen timestamps and revoke individual sessions. Password changes revoke all other sessions.
+
+System-admin access is enforced server-side. Workspace mutations use Owner/Admin policy; Members are read-only.
+
+For suspected account compromise:
+1. Change password.
+2. Revoke all other sessions.
+3. Review audit events.
+4. Rotate affected external credentials if necessary.
+
+## Alerting
+
+The five-minute health timer records warning/critical events in `service_events`. If `OPS_ALERT_WEBHOOK_URL` is configured, the same health payload is pushed to the external operations channel.
+
+Important signals:
+- API/readiness unavailable
+- worker heartbeat stale
+- queue failed jobs
+- queue backlog or old pending job
+- stale/missing backup
+- high disk usage
+- TLS expiry
+- Instagram token expiry/reauth
+
+## Rollback
+
+Prefer reverting the application commit and restarting API/worker. Database migrations are forward-only: do not casually delete columns/tables to roll back application code. New schema should remain backward-compatible for at least one release when possible.
+
+After rollback:
+```bash
+npm run check
+npm test
+curl -fsS http://127.0.0.1:3100/ready
+```
+
+Then verify Admin > System, one customer dashboard, Instagram connection status and worker heartbeat.

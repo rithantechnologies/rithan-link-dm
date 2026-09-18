@@ -36,6 +36,10 @@ const {
   safeAuditLog
 } = require("../lib/audit-log");
 
+const {
+  sessionMetadata
+} = require("../lib/session-device");
+
 const router =
   express.Router();
 
@@ -289,13 +293,19 @@ router.post(
           rawToken
         );
 
+      const sessionInfo =
+        sessionMetadata(req);
+
       await pool.query(
         `
         INSERT INTO user_sessions (
           user_id,
           active_workspace_id,
           session_token_hash,
-          expires_at
+          expires_at,
+          user_agent,
+          ip_address,
+          device_label
         )
         VALUES (
           $1,
@@ -303,14 +313,20 @@ router.post(
           $3,
           NOW() +
             ($4::double precision *
-             INTERVAL '1 day')
+             INTERVAL '1 day'),
+          $5,
+          $6,
+          $7
         )
         `,
         [
           user.id,
           workspace.id,
           tokenHash,
-          SESSION_DAYS
+          SESSION_DAYS,
+          sessionInfo.userAgent,
+          sessionInfo.ipAddress,
+          sessionInfo.deviceLabel
         ]
       );
 
@@ -459,6 +475,9 @@ router.get(
             created_at,
             last_seen_at,
             expires_at,
+            device_label,
+            ip_address,
+            user_agent,
 
             (
               id = $2
@@ -681,6 +700,69 @@ router.post(
         error.message
       );
 
+      return res.sendStatus(500);
+    }
+  }
+);
+
+
+// --------------------------------------------------
+// POST /api/auth/sessions/:id/revoke
+// --------------------------------------------------
+
+router.post(
+  "/sessions/:id/revoke",
+  requireAuth,
+
+  async (req, res) => {
+    try {
+      if (req.params.id === req.auth.sessionId) {
+        return res.status(400).json({
+          error: "cannot_revoke_current_session"
+        });
+      }
+
+      const result = await pool.query(
+        `
+        UPDATE user_sessions
+        SET revoked_at = NOW()
+        WHERE
+          id = $1
+          AND user_id = $2
+          AND revoked_at IS NULL
+        RETURNING id
+        `,
+        [
+          req.params.id,
+          req.auth.userId
+        ]
+      );
+
+      if (result.rowCount === 0) {
+        return res.status(404).json({
+          error: "session_not_found"
+        });
+      }
+
+      await safeAuditLog({
+        workspaceId: req.auth.workspaceId,
+        userId: req.auth.userId,
+        eventType: "auth.session_revoked",
+        targetType: "user_session",
+        targetId: req.params.id,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent")
+      });
+
+      return res.json({
+        revoked: true,
+        sessionId: req.params.id
+      });
+    } catch (error) {
+      console.error(
+        "Revoke session failed:",
+        error.message
+      );
       return res.sendStatus(500);
     }
   }

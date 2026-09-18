@@ -33,6 +33,10 @@ const {
   requireSameOrigin
 } = require("../lib/same-origin");
 
+const {
+  requireWorkspaceEditor
+} = require("../lib/workspace-policy");
+
 const router = express.Router();
 
 const API_VERSION =
@@ -390,6 +394,7 @@ router.get(
 
 router.post(
   "/connect",
+  requireWorkspaceEditor,
   async (req, res) => {
     try {
       const entitlements =

@@ -2001,3 +2001,88 @@ textarea:focus {
     grid-template-columns: 1fr;
   }
 }
+
+.workspace-alerts {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.workspace-alert {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.workspace-alert.warning {
+  border-color: rgba(217, 140, 29, .35);
+  background: #fffaf1;
+}
+
+.workspace-alert.critical {
+  border-color: rgba(220, 63, 80, .35);
+  background: #fff5f6;
+}
+
+.workspace-alert p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.workspace-alert-actions,
+.settings-session-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.settings-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.settings-check input {
+  width: 18px;
+  height: 18px;
+}
+
+.settings-list {
+  margin-top: 18px;
+}
+
+.settings-list h4 {
+  margin: 0 0 10px;
+}
+
+.team-role-select {
+  min-width: 110px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+}
+
+.button.compact {
+  padding: 7px 10px;
+  font-size: 12px;
+}
+
+@media (max-width: 720px) {
+  .workspace-alert {
+    flex-direction: column;
+  }
+
+  .settings-session-actions {
+    width: 100%;
+  }
+}

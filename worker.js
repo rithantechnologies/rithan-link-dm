@@ -17,6 +17,11 @@ const pool =
   require("./db");
 
 const {
+  emit,
+  recordServiceEvent
+} = require("./lib/ops");
+
+const {
   processInstagramCommentJob
 } = require(
   "./lib/instagram-comment-processor"
@@ -47,6 +52,23 @@ const worker =
     queueName,
 
     async (job) => {
+      emit(
+        "info",
+        "instagram_job_started",
+        {
+          jobId:
+            job.id,
+          jobName:
+            job.name,
+          requestId:
+            job.data?.requestId || null,
+          professionalAccountId:
+            job.data?.professionalAccountId || null,
+          attemptsMade:
+            job.attemptsMade
+        }
+      );
+
       if (
         job.name ===
         "instagram-public-reply"
@@ -219,7 +241,14 @@ async function writeWorkerHeartbeat() {
           queueName,
           pid:
             process.pid,
-          concurrency: 5
+          concurrency: 5,
+          queueCounts:
+            await instagramQueue.getJobCounts(
+              "waiting",
+              "active",
+              "delayed",
+              "failed"
+            )
         })
       ]
     );
@@ -251,28 +280,170 @@ worker.on("ready", () => {
 worker.on(
   "completed",
   (job) => {
-    console.log(
-      "Instagram job completed:",
-      job.id
+    emit(
+      "info",
+      "instagram_job_completed",
+      {
+        jobId:
+          job.id,
+        jobName:
+          job.name,
+        requestId:
+          job.data?.requestId || null,
+        attemptsMade:
+          job.attemptsMade
+      }
     );
   }
 );
 
+async function notifyTerminalFailure(job, error) {
+  const attempts =
+    Number(job?.opts?.attempts || 1);
+
+  if (
+    Number(job?.attemptsMade || 0) <
+    attempts
+  ) {
+    return;
+  }
+
+  const professionalAccountId =
+    job?.data?.professionalAccountId ||
+    null;
+
+  if (!professionalAccountId) {
+    return;
+  }
+
+  try {
+    const result =
+      await pool.query(
+        `
+        SELECT
+          latest.workspace_id,
+          w.notify_failures,
+          ia.username
+        FROM instagram_accounts ia
+        JOIN LATERAL (
+          SELECT
+            ic.workspace_id
+          FROM instagram_connections ic
+          WHERE
+            ic.instagram_account_id =
+              ia.id
+          ORDER BY
+            ic.connected_at DESC,
+            ic.created_at DESC
+          LIMIT 1
+        ) latest ON TRUE
+        JOIN workspaces w
+          ON w.id =
+             latest.workspace_id
+        WHERE
+          ia.professional_account_id = $1
+        LIMIT 1
+        `,
+        [professionalAccountId]
+      );
+
+    const row =
+      result.rows[0];
+
+    if (!row?.notify_failures) {
+      return;
+    }
+
+    const jobId =
+      String(job?.id || "unknown");
+
+    await pool.query(
+      `
+      INSERT INTO workspace_notifications (
+        workspace_id,
+        notification_type,
+        severity,
+        title,
+        message,
+        action_url,
+        dedupe_key
+      )
+      VALUES (
+        $1,
+        'delivery_failure',
+        'critical',
+        'Automation delivery needs attention',
+        $2,
+        '/dashboard/?page=activity',
+        $3
+      )
+      ON CONFLICT (workspace_id,dedupe_key)
+      WHERE dedupe_key IS NOT NULL
+      DO UPDATE SET
+        message=EXCLUDED.message,
+        severity=EXCLUDED.severity
+      `,
+      [
+        row.workspace_id,
+        `A delivery job for @${row.username || "Instagram"} exhausted all retries: ${String(error.message).slice(0, 400)}`,
+        `delivery-failure:${jobId}`
+      ]
+    );
+  } catch (notificationError) {
+    emit(
+      "error",
+      "failure_notification_failed",
+      {
+        jobId:
+          job?.id || null,
+        error:
+          notificationError.message
+      }
+    );
+  }
+}
+
 worker.on(
   "failed",
   (job, error) => {
-    console.error(
-      "Instagram job failed:",
+    const metadata = {
+      jobId:
+        job?.id || null,
+      jobName:
+        job?.name || null,
+      requestId:
+        job?.data?.requestId || null,
+      attemptsMade:
+        job?.attemptsMade || 0,
+      professionalAccountId:
+        job?.data?.professionalAccountId || null
+    };
+
+    emit(
+      "error",
+      "instagram_job_failed",
       {
-        jobId:
-          job?.id,
-
-        attemptsMade:
-          job?.attemptsMade,
-
+        ...metadata,
         error:
           error.message
       }
+    );
+
+    recordServiceEvent({
+      serviceName:
+        "instagram-worker",
+      severity:
+        "error",
+      eventType:
+        "instagram_job_failed",
+      message:
+        error.message,
+      metadata
+    });
+
+    notifyTerminalFailure(
+      job,
+      error
     );
   }
 );

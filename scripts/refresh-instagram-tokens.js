@@ -38,6 +38,8 @@ async function getCandidates() {
       `
       SELECT
         ic.id AS connection_id,
+        ic.workspace_id,
+        ic.instagram_account_id,
         ia.username,
         ia.professional_account_id,
 
@@ -70,6 +72,8 @@ async function getCandidates() {
     `
     SELECT
       ic.id AS connection_id,
+      ic.workspace_id,
+      ic.instagram_account_id,
       ia.username,
       ia.professional_account_id,
 
@@ -267,6 +271,24 @@ async function saveSuccessfulRefresh(
         connection.connection_id,
         connection.token_expires_at,
         newExpiresAt
+      ]
+    );
+
+    await client.query(
+      `
+      UPDATE workspace_notifications
+      SET read_at = COALESCE(read_at, NOW())
+      WHERE
+        workspace_id = $1
+        AND (
+          dedupe_key LIKE $2
+          OR dedupe_key LIKE $3
+        )
+      `,
+      [
+        connection.workspace_id,
+        `instagram-token:${connection.connection_id}:%`,
+        `instagram-reauth:${connection.connection_id}:%`
       ]
     );
 
@@ -511,6 +533,114 @@ async function processConnection(connection) {
 }
 
 
+async function syncTokenNotifications() {
+  const result = await pool.query(
+    `
+    SELECT
+      ic.id AS connection_id,
+      ic.workspace_id,
+      ic.instagram_account_id,
+      ic.status,
+      ic.token_expires_at,
+      ia.username,
+      w.notify_token_expiry
+    FROM instagram_connections ic
+    JOIN instagram_accounts ia
+      ON ia.id=ic.instagram_account_id
+    JOIN workspaces w
+      ON w.id=ic.workspace_id
+    WHERE
+      ic.status IN ('connected','reauth_required')
+      AND w.status='active'
+    `
+  );
+
+  for (const row of result.rows) {
+    if (!row.notify_token_expiry) {
+      continue;
+    }
+
+    let severity = null;
+    let title = null;
+    let message = null;
+    let dedupeKey = null;
+
+    if (row.status === "reauth_required") {
+      severity = "critical";
+      title = "Reconnect Instagram";
+      message =
+        `@${row.username || "Instagram account"} needs to be reconnected before automations can continue.`;
+      dedupeKey =
+        `instagram-reauth:${row.connection_id}:required`;
+    } else if (row.token_expires_at) {
+      const days =
+        (new Date(row.token_expires_at).getTime() - Date.now()) /
+        86400000;
+
+      const threshold =
+        days <= 1 ? 1 :
+        days <= 3 ? 3 :
+        days <= 7 ? 7 :
+        days <= 14 ? 14 :
+        null;
+
+      if (threshold) {
+        severity =
+          threshold <= 3
+            ? "critical"
+            : "warning";
+        title = "Instagram token expiring";
+        message =
+          `@${row.username || "Instagram account"} token expires in about ${Math.max(0, Math.ceil(days))} day(s). Reconnect now to avoid interrupted automations.`;
+        dedupeKey =
+          `instagram-token:${row.connection_id}:${threshold}`;
+      }
+    }
+
+    if (!dedupeKey) {
+      continue;
+    }
+
+    await pool.query(
+      `
+      INSERT INTO workspace_notifications (
+        workspace_id,
+        notification_type,
+        severity,
+        title,
+        message,
+        action_url,
+        dedupe_key
+      )
+      VALUES (
+        $1,
+        'instagram_connection',
+        $2,
+        $3,
+        $4,
+        '/dashboard/?page=instagram',
+        $5
+      )
+      ON CONFLICT (workspace_id,dedupe_key)
+      WHERE dedupe_key IS NOT NULL
+      DO UPDATE SET
+        severity=EXCLUDED.severity,
+        title=EXCLUDED.title,
+        message=EXCLUDED.message,
+        action_url=EXCLUDED.action_url
+      `,
+      [
+        row.workspace_id,
+        severity,
+        title,
+        message,
+        dedupeKey
+      ]
+    );
+  }
+}
+
+
 // ----------------------------------------------------
 // Main
 // ----------------------------------------------------
@@ -552,6 +682,8 @@ async function main() {
         connection
       );
     }
+
+    await syncTokenNotifications();
 
   } finally {
     await lockClient.query(
