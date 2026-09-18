@@ -258,28 +258,86 @@ function diskUsagePercent() {
     total
   ) * 100;
 }
+function sleep(ms) {
+  return new Promise(resolve =>
+    setTimeout(resolve, ms)
+  );
+}
+
+async function fetchWithRetry(
+  url,
+  {
+    attempts = 5,
+    timeoutMs = 4000,
+    delayMs = 750
+  } = {}
+) {
+  let lastError = null;
+
+  for (
+    let attempt = 1;
+    attempt <= attempts;
+    attempt += 1
+  ) {
+    const controller =
+      new AbortController();
+
+    const timeout =
+      setTimeout(
+        () => controller.abort(),
+        timeoutMs
+      );
+
+    try {
+      const response =
+        await fetch(
+          url,
+          {
+            signal:
+              controller.signal
+          }
+        );
+
+      if (
+        response.ok ||
+        attempt === attempts
+      ) {
+        return response;
+      }
+
+      lastError =
+        new Error(
+          `HTTP ${response.status}`
+        );
+
+    } catch (error) {
+      lastError = error;
+
+      if (attempt === attempts) {
+        throw error;
+      }
+
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    await sleep(delayMs);
+  }
+
+  throw lastError ||
+    new Error(
+      "health_fetch_failed"
+    );
+}
+
 async function main() {
   const failures = [];
   const warnings = [];
 
-  const readyController =
-    new AbortController();
-
-  const timeout =
-    setTimeout(
-      () =>
-        readyController.abort(),
-      4000
-    );
-
   try {
     const response =
-      await fetch(
-        "http://127.0.0.1:3100/ready",
-        {
-          signal:
-            readyController.signal
-        }
+      await fetchWithRetry(
+        "http://127.0.0.1:3100/ready"
       );
 
     if (!response.ok) {
@@ -305,34 +363,20 @@ async function main() {
     failures.push(
       `ready_unreachable:${error.name}`
     );
-
-  } finally {
-    clearTimeout(timeout);
   }
 
   let publicStatus = null;
   let tlsRemaining = null;
 
-  const publicController =
-    new AbortController();
-
-  const publicTimeout =
-    setTimeout(
-      () =>
-        publicController.abort(),
-      5000
-    );
-
   try {
     const response =
-      await fetch(
+      await fetchWithRetry(
         new URL(
           "/health",
           publicApiUrl
         ),
         {
-          signal:
-            publicController.signal
+          timeoutMs: 5000
         }
       );
 
@@ -348,11 +392,6 @@ async function main() {
   } catch (error) {
     failures.push(
       `public_health_unreachable:${error.name}`
-    );
-
-  } finally {
-    clearTimeout(
-      publicTimeout
     );
   }
 
