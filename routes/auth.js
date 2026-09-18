@@ -72,6 +72,322 @@ function cookieOptions() {
   };
 }
 
+function hashSetupToken(token) {
+  return crypto
+    .createHash("sha256")
+    .update(String(token || ""))
+    .digest("hex");
+}
+
+
+// --------------------------------------------------
+// POST /api/auth/request-access
+// --------------------------------------------------
+
+router.post(
+  "/request-access",
+  async (req, res) => {
+    try {
+      const email =
+        String(req.body?.email || "")
+          .trim()
+          .toLowerCase();
+
+      const displayName =
+        String(req.body?.displayName || "")
+          .trim()
+          .slice(0, 120);
+
+      const workspaceName =
+        String(req.body?.workspaceName || "")
+          .trim()
+          .slice(0, 120);
+
+      const useCase =
+        String(req.body?.useCase || "")
+          .trim()
+          .slice(0, 1500);
+
+      if (
+        !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) ||
+        !workspaceName
+      ) {
+        return res.status(400).json({
+          error: "valid_email_and_workspace_required"
+        });
+      }
+
+      const existingUser =
+        await pool.query(
+          `SELECT 1 FROM users
+           WHERE LOWER(email)=LOWER($1)
+           LIMIT 1`,
+          [email]
+        );
+
+      if (existingUser.rowCount) {
+        return res.status(202).json({
+          submitted: true
+        });
+      }
+
+      const requesterIp =
+        String(req.ip || "")
+          .slice(0, 128) ||
+        null;
+
+      if (requesterIp) {
+        const recent =
+          await pool.query(
+            `
+            SELECT COUNT(*)::integer AS count
+            FROM customer_access_requests
+            WHERE
+              requester_ip=$1
+              AND created_at >=
+                NOW() - INTERVAL '1 hour'
+            `,
+            [requesterIp]
+          );
+
+        if (
+          Number(recent.rows[0]?.count || 0) >=
+          10
+        ) {
+          res.set(
+            "Retry-After",
+            "3600"
+          );
+
+          return res.status(429).json({
+            error: "too_many_access_requests"
+          });
+        }
+      }
+
+      await pool.query(
+        `
+        INSERT INTO customer_access_requests (
+          email,
+          display_name,
+          workspace_name,
+          use_case,
+          requester_ip
+        )
+        VALUES ($1,$2,$3,$4,$5)
+        ON CONFLICT (LOWER(email))
+        WHERE status='pending'
+        DO UPDATE SET
+          display_name=EXCLUDED.display_name,
+          workspace_name=EXCLUDED.workspace_name,
+          use_case=EXCLUDED.use_case,
+          requester_ip=EXCLUDED.requester_ip,
+          updated_at=NOW()
+        `,
+        [
+          email,
+          displayName || null,
+          workspaceName,
+          useCase || null,
+          String(req.ip || "").slice(0, 128) || null
+        ]
+      );
+
+      return res.status(202).json({
+        submitted: true
+      });
+    } catch (error) {
+      console.error(
+        "Access request failed:",
+        error.message
+      );
+      return res.sendStatus(500);
+    }
+  }
+);
+
+
+// --------------------------------------------------
+// POST /api/auth/setup-account/validate
+// --------------------------------------------------
+
+router.post(
+  "/setup-account/validate",
+  async (req, res) => {
+    try {
+      const token =
+        String(req.body?.token || "");
+
+      if (!token) {
+        return res.status(400).json({
+          error: "setup_token_required"
+        });
+      }
+
+      const result =
+        await pool.query(
+          `
+          SELECT
+            ast.id,
+            ast.expires_at,
+            u.email,
+            u.display_name,
+            w.name AS workspace_name
+          FROM account_setup_tokens ast
+          JOIN users u ON u.id=ast.user_id
+          JOIN workspaces w ON w.id=ast.workspace_id
+          WHERE
+            ast.token_hash=$1
+            AND ast.consumed_at IS NULL
+            AND ast.expires_at>NOW()
+            AND u.status='disabled'
+            AND w.status='active'
+          LIMIT 1
+          `,
+          [hashSetupToken(token)]
+        );
+
+      if (!result.rowCount) {
+        return res.status(404).json({
+          error: "setup_token_invalid_or_expired"
+        });
+      }
+
+      return res.json({
+        account: result.rows[0]
+      });
+    } catch (error) {
+      console.error(
+        "Account setup lookup failed:",
+        error.message
+      );
+      return res.sendStatus(500);
+    }
+  }
+);
+
+
+// --------------------------------------------------
+// POST /api/auth/setup-account
+// --------------------------------------------------
+
+router.post(
+  "/setup-account",
+  async (req, res) => {
+    const token =
+      String(req.body?.token || "");
+
+    const password =
+      String(req.body?.password || "");
+
+    if (!token || password.length < 12) {
+      return res.status(400).json({
+        error:
+          !token
+            ? "setup_token_required"
+            : "password_too_short"
+      });
+    }
+
+    const client =
+      await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const setup =
+        await client.query(
+          `
+          SELECT
+            ast.id,
+            ast.user_id,
+            ast.workspace_id,
+            u.email
+          FROM account_setup_tokens ast
+          JOIN users u ON u.id=ast.user_id
+          JOIN workspaces w ON w.id=ast.workspace_id
+          WHERE
+            ast.token_hash=$1
+            AND ast.consumed_at IS NULL
+            AND ast.expires_at>NOW()
+            AND u.status='disabled'
+            AND w.status='active'
+          FOR UPDATE
+          `,
+          [hashSetupToken(token)]
+        );
+
+      if (!setup.rowCount) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({
+          error: "setup_token_invalid_or_expired"
+        });
+      }
+
+      const row =
+        setup.rows[0];
+
+      const passwordHash =
+        await hashPassword(password);
+
+      await client.query(
+        `
+        UPDATE users
+        SET
+          password_hash=$1,
+          status='active',
+          updated_at=NOW()
+        WHERE id=$2
+        `,
+        [
+          passwordHash,
+          row.user_id
+        ]
+      );
+
+      await client.query(
+        `
+        UPDATE account_setup_tokens
+        SET consumed_at=NOW()
+        WHERE id=$1
+        `,
+        [row.id]
+      );
+
+      await client.query("COMMIT");
+
+      await safeAuditLog({
+        workspaceId: row.workspace_id,
+        userId: row.user_id,
+        eventType: "auth.account_setup_completed",
+        targetType: "user",
+        targetId: row.user_id,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent"),
+        metadata: {
+          email: row.email
+        }
+      });
+
+      return res.json({
+        setup: true
+      });
+    } catch (error) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {}
+
+      console.error(
+        "Account setup failed:",
+        error.message
+      );
+      return res.sendStatus(500);
+    } finally {
+      client.release();
+    }
+  }
+);
+
 
 // --------------------------------------------------
 // POST /api/auth/login

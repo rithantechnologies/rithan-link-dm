@@ -229,7 +229,7 @@ router.post(
 
       return res.status(201).json({
         invitation: result.rows[0],
-        inviteUrl: `/dashboard/?invite=${encodeURIComponent(token)}`
+        inviteUrl: `/dashboard/#invite=${encodeURIComponent(token)}`
       });
     } catch (error) {
       console.error("Create invitation failed:", error.message);

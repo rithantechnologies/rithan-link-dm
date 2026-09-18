@@ -1,6 +1,7 @@
 const state = {
   me: null,
   overview: null,
+  onboardingRequests: [],
   workspaces: [],
   errors: [],
   system: null,
@@ -63,8 +64,8 @@ function shortDate(value) {
 
 function statusBadge(status) {
   const value = String(status || "unknown");
-  const good = ["active", "connected", "healthy", "sent", "trialing"].includes(value);
-  const bad = ["failed", "disconnected", "canceled", "error"].includes(value);
+  const good = ["active", "approved", "connected", "healthy", "sent", "trialing"].includes(value);
+  const bad = ["failed", "rejected", "disconnected", "canceled", "error"].includes(value);
   const cls = good ? "good" : bad ? "bad" : "warn";
   return `<span class="badge ${cls}">${escapeHtml(value)}</span>`;
 }
@@ -76,6 +77,7 @@ function metricCard(label, value, hint = "") {
 function pageText(page) {
   return ({
     overview: ["Overview", "Customer and automation health."],
+    onboarding: ["Onboarding", "Review and approve customer access requests."],
     workspaces: ["Customers", "Workspaces, plans, usage and connections."],
     errors: ["Errors", "Recent customer-impacting delivery failures."],
     system: ["System", "Worker and Instagram token health."]
@@ -90,6 +92,9 @@ function changePage(page) {
   $("#pageTitle").textContent = title;
   $("#pageSubtitle").textContent = subtitle;
 
+  if (page === "onboarding") {
+    loadOnboarding($("#onboardingStatus")?.value || "pending");
+  }
   if (page === "workspaces") loadWorkspaces($("#workspaceSearch")?.value || "");
   if (page === "errors") loadErrors();
   if (page === "system") loadSystem();
@@ -117,6 +122,7 @@ function renderOverview() {
   const overview = state.overview || {};
   $("#overviewCards").innerHTML = [
     metricCard("Customers", overview.customers || 0, `${overview.workspaces || 0} workspace(s)`),
+    metricCard("Pending approvals", overview.pending_customer_requests || 0, "Customer access requests"),
     metricCard("Connected Instagram", overview.connected_accounts || 0, `${overview.accounts_requiring_reauth || 0} reconnect required`),
     metricCard("Active automations", overview.active_automations || 0, "Across all workspaces"),
     metricCard("DMs this month", overview.dm_sent_this_month || 0, "Successful private replies"),
@@ -146,6 +152,162 @@ async function loadOverview() {
   state.overview = overview.overview || {};
   state.system = system || null;
   renderOverview();
+}
+
+function showSetupLink(url) {
+  $("#setupLinkValue").value = url || "";
+  $("#setupLinkModal").classList.remove("hidden");
+}
+
+function closeSetupLink() {
+  $("#setupLinkModal").classList.add("hidden");
+  $("#setupLinkValue").value = "";
+}
+
+async function copySetupLink() {
+  const value = $("#setupLinkValue").value;
+  if (!value) return;
+
+  try {
+    await navigator.clipboard.writeText(value);
+    toast("Setup link copied.");
+  } catch {
+    $("#setupLinkValue").select();
+    toast("Copy the selected setup link.");
+  }
+}
+
+function renderOnboarding() {
+  const root = $("#onboardingTable");
+  const rows = state.onboardingRequests || [];
+
+  if (!rows.length) {
+    root.innerHTML = `<div class="empty">No matching onboarding requests.</div>`;
+    return;
+  }
+
+  root.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>Requested</th>
+          <th>Customer</th>
+          <th>Workspace</th>
+          <th>Use case</th>
+          <th>Status</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map(item => {
+          const pending = item.status === "pending";
+          const approvedUnclaimed =
+            item.status === "approved" &&
+            item.user_status !== "active";
+
+          return `<tr>
+            <td>${escapeHtml(formatDate(item.created_at))}</td>
+            <td>
+              <strong>${escapeHtml(item.display_name || item.email)}</strong>
+              <div class="muted">${escapeHtml(item.email)}</div>
+            </td>
+            <td>${escapeHtml(item.workspace_name)}</td>
+            <td class="request-use-case">${escapeHtml(item.use_case || "—")}</td>
+            <td>${statusBadge(item.status)}</td>
+            <td>
+              ${pending ? `
+                <div class="onboarding-actions">
+                  <select class="compact-select" data-plan-for="${escapeHtml(item.id)}">
+                    <option value="free">Free</option>
+                    <option value="starter">Starter</option>
+                    <option value="pro">Pro</option>
+                  </select>
+                  <button class="button primary small" data-approve-request="${escapeHtml(item.id)}">Approve</button>
+                  <button class="button small" data-reject-request="${escapeHtml(item.id)}">Reject</button>
+                </div>` : approvedUnclaimed ? `
+                <button class="button small" data-setup-link="${escapeHtml(item.id)}">
+                  New setup link
+                </button>` : `
+                <span class="muted">
+                  ${item.status === "approved" && item.user_status === "active" ? "Activated" : escapeHtml(item.rejection_reason || "Reviewed")}
+                </span>`}
+            </td>
+          </tr>`;
+        }).join("")}
+      </tbody>
+    </table>`;
+
+  $$('[data-approve-request]').forEach(button => {
+    button.addEventListener('click', async () => {
+      const id = button.dataset.approveRequest;
+      const plan = $(`[data-plan-for="${CSS.escape(id)}"]`)?.value || 'free';
+      button.disabled = true;
+      try {
+        const result = await api(`/api/admin/customer-requests/${encodeURIComponent(id)}/approve`, {
+          method: 'POST',
+          body: JSON.stringify({ planCode: plan })
+        });
+        showSetupLink(result.setupUrl);
+        toast('Customer approved and workspace provisioned.');
+        await loadOnboarding($("#onboardingStatus").value);
+        await loadOverview();
+      } catch (error) {
+        toast(error.body?.error || 'Customer approval failed.');
+      } finally {
+        button.disabled = false;
+      }
+    });
+  });
+
+  $$('[data-reject-request]').forEach(button => {
+    button.addEventListener('click', async () => {
+      const reason = window.prompt('Reason for rejection (optional):', '') ?? null;
+      if (reason === null) return;
+      button.disabled = true;
+      try {
+        await api(`/api/admin/customer-requests/${encodeURIComponent(button.dataset.rejectRequest)}/reject`, {
+          method: 'POST',
+          body: JSON.stringify({ reason })
+        });
+        toast('Customer request rejected.');
+        await loadOnboarding($("#onboardingStatus").value);
+        await loadOverview();
+      } catch (error) {
+        toast(error.body?.error || 'Could not reject request.');
+      } finally {
+        button.disabled = false;
+      }
+    });
+  });
+
+  $$('[data-setup-link]').forEach(button => {
+    button.addEventListener('click', async () => {
+      button.disabled = true;
+      try {
+        const result = await api(`/api/admin/customer-requests/${encodeURIComponent(button.dataset.setupLink)}/setup-link`, {
+          method: 'POST',
+          body: JSON.stringify({})
+        });
+        showSetupLink(result.setupUrl);
+      } catch (error) {
+        toast(error.body?.error || 'Could not create setup link.');
+      } finally {
+        button.disabled = false;
+      }
+    });
+  });
+}
+
+async function loadOnboarding(status = "pending") {
+  try {
+    const result = await api(
+      `/api/admin/customer-requests?status=${encodeURIComponent(status)}&limit=100`
+    );
+    state.onboardingRequests = result.requests || [];
+    renderOnboarding();
+  } catch {
+    toast("Could not load onboarding requests.");
+  }
 }
 
 function renderWorkspaces() {
@@ -393,6 +555,7 @@ async function loadSystem() {
 async function refreshCurrent() {
   try {
     if (state.currentPage === "overview") await loadOverview();
+    if (state.currentPage === "onboarding") await loadOnboarding($("#onboardingStatus")?.value || "pending");
     if (state.currentPage === "workspaces") await loadWorkspaces($("#workspaceSearch")?.value || "");
     if (state.currentPage === "errors") await loadErrors();
     if (state.currentPage === "system") await loadSystem();
@@ -405,6 +568,34 @@ async function refreshCurrent() {
 function bindEvents() {
   $$(".nav-item[data-page]").forEach(button => button.addEventListener("click", () => changePage(button.dataset.page)));
   $("#refreshButton").addEventListener("click", refreshCurrent);
+
+  $("#onboardingStatus")
+    ?.addEventListener(
+      "change",
+      event => loadOnboarding(event.target.value)
+    );
+
+  $("#copySetupLink")
+    ?.addEventListener(
+      "click",
+      copySetupLink
+    );
+
+  $("#closeSetupLink")
+    ?.addEventListener(
+      "click",
+      closeSetupLink
+    );
+
+  $("#setupLinkModal")
+    ?.addEventListener(
+      "click",
+      event => {
+        if (event.target === $("#setupLinkModal")) {
+          closeSetupLink();
+        }
+      }
+    );
   $("#closeDrawer").addEventListener("click", closeDrawer);
   $("#drawerBackdrop").addEventListener("click", closeDrawer);
 

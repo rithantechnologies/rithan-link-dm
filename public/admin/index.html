@@ -57,6 +57,13 @@
 
         <button
           class="nav-item"
+          data-page="onboarding"
+        >
+          Onboarding
+        </button>
+
+        <button
+          class="nav-item"
           data-page="workspaces"
         >
           Customers
@@ -144,6 +151,34 @@
             <div id="overviewSystem"></div>
           </section>
         </div>
+      </section>
+
+      <section
+        id="page-onboarding"
+        class="page hidden"
+      >
+        <section class="panel">
+          <div class="panel-head wrap">
+            <div>
+              <h2>Customer onboarding</h2>
+              <p>
+                Review access requests and provision approved workspaces.
+              </p>
+            </div>
+
+            <select id="onboardingStatus" class="search">
+              <option value="pending">Pending</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
+              <option value="all">All requests</option>
+            </select>
+          </div>
+
+          <div
+            id="onboardingTable"
+            class="table-wrap"
+          ></div>
+        </section>
       </section>
 
       <section
@@ -287,6 +322,45 @@
       class="drawer-body"
     ></div>
   </aside>
+
+  <div
+    id="setupLinkModal"
+    class="modal-backdrop hidden"
+  >
+    <div class="modal-card">
+      <h2>Customer approved</h2>
+      <p>
+        Send this one-time setup link securely to the workspace owner.
+      </p>
+
+      <label class="field">
+        <span>Setup link</span>
+        <input
+          id="setupLinkValue"
+          type="text"
+          readonly
+        >
+      </label>
+
+      <div class="row-actions">
+        <button
+          id="copySetupLink"
+          class="button primary"
+          type="button"
+        >
+          Copy link
+        </button>
+
+        <button
+          id="closeSetupLink"
+          class="button"
+          type="button"
+        >
+          Close
+        </button>
+      </div>
+    </div>
+  </div>
 
   <div
     id="toast"

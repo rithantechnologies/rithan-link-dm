@@ -135,3 +135,25 @@ curl -fsS http://127.0.0.1:3100/ready
 ```
 
 Then verify Admin > System, one customer dashboard, Instagram connection status and worker heartbeat.
+
+## Customer onboarding and approval
+
+Early Access onboarding is admin-approved.
+
+Customer flow:
+
+1. Customer opens the dashboard sign-in page and chooses **Request an account**.
+2. Customer submits name, work email, workspace/business name and intended use.
+3. The request appears in **Admin > Onboarding** as Pending.
+4. A system administrator selects the initial plan and chooses **Approve** or **Reject**.
+5. Approval atomically creates the workspace, disabled Owner account, workspace membership, subscription entitlement, monthly usage row and one-time account setup token.
+6. The admin securely sends the displayed setup link to the customer.
+7. The customer opens the link, sets a password of at least 12 characters and activates the account.
+8. The one-time setup token is consumed and cannot be reused.
+9. The customer signs in and follows the normal Instagram onboarding checklist.
+
+Approved but unclaimed accounts remain disabled. From **Admin > Onboarding > Approved**, use **New setup link** to invalidate any previous unconsumed setup token and issue a new one. This action is blocked after the account has been activated.
+
+Do not send raw passwords to customers. Administrators never need to know the customer's password.
+
+Public access requests are same-origin protected, covered by the global mutation limiter, and additionally capped at 10 newly recorded requests per source IP per hour.

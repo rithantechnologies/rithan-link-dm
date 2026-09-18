@@ -1,4 +1,5 @@
 const express = require("express");
+const crypto = require("crypto");
 
 const pool = require("../db");
 
@@ -38,6 +39,30 @@ router.use((req, res, next) => {
 });
 
 router.use(requireSameOrigin);
+
+function setupTokenHash(token) {
+  return crypto
+    .createHash("sha256")
+    .update(String(token || ""))
+    .digest("hex");
+}
+
+function setupUrl(token) {
+  const base =
+    process.env.PUBLIC_API_URL ||
+    "https://api.rithantechnologies.com";
+
+  const url =
+    new URL(
+      "/dashboard/",
+      base
+    );
+
+  url.hash =
+    `setup=${encodeURIComponent(token)}`;
+
+  return url.toString();
+}
 
 function limitValue(
   value,
@@ -152,7 +177,13 @@ router.get(
                 AND token_expires_at <
                   NOW() +
                   INTERVAL '14 days'
-            ) AS tokens_expiring_14d
+            ) AS tokens_expiring_14d,
+
+            (
+              SELECT COUNT(*)::integer
+              FROM customer_access_requests
+              WHERE status = 'pending'
+            ) AS pending_customer_requests
         `);
 
       return res.json({
@@ -170,6 +201,524 @@ router.get(
     }
   }
 );
+router.get(
+  "/customer-requests",
+  async (req, res) => {
+    try {
+      const status =
+        String(req.query.status || "pending")
+          .trim()
+          .toLowerCase();
+
+      const allowed =
+        ["pending", "approved", "rejected", "all"];
+
+      if (!allowed.includes(status)) {
+        return res.status(400).json({
+          error: "invalid_request_status"
+        });
+      }
+
+      const limit =
+        limitValue(req.query.limit, 100, 200);
+
+      const params = [];
+      let where = "";
+
+      if (status !== "all") {
+        params.push(status);
+        where = `WHERE car.status=$${params.length}`;
+      }
+
+      params.push(limit);
+
+      const result =
+        await pool.query(
+          `
+          SELECT
+            car.id,
+            car.email,
+            car.display_name,
+            car.workspace_name,
+            car.use_case,
+            car.status,
+            car.created_at,
+            car.updated_at,
+            car.reviewed_at,
+            car.rejection_reason,
+            car.provisioned_workspace_id,
+            car.provisioned_user_id,
+            reviewer.email AS reviewer_email,
+            u.status AS user_status,
+            EXISTS (
+              SELECT 1
+              FROM account_setup_tokens ast
+              WHERE
+                ast.user_id=car.provisioned_user_id
+                AND ast.consumed_at IS NULL
+                AND ast.expires_at>NOW()
+            ) AS setup_pending
+          FROM customer_access_requests car
+          LEFT JOIN users reviewer
+            ON reviewer.id=car.reviewed_by_user_id
+          LEFT JOIN users u
+            ON u.id=car.provisioned_user_id
+          ${where}
+          ORDER BY
+            CASE car.status
+              WHEN 'pending' THEN 1
+              WHEN 'approved' THEN 2
+              ELSE 3
+            END,
+            car.created_at DESC
+          LIMIT $${params.length}
+          `,
+          params
+        );
+
+      return res.json({
+        requests: result.rows
+      });
+    } catch (error) {
+      console.error(
+        "Customer requests lookup failed:",
+        error.message
+      );
+      return res.sendStatus(500);
+    }
+  }
+);
+
+router.post(
+  "/customer-requests/:id/approve",
+  async (req, res) => {
+    const planCode =
+      String(req.body?.planCode || "free")
+        .trim()
+        .toLowerCase();
+
+    const rawToken =
+      crypto.randomBytes(32).toString("base64url");
+
+    const setupHours =
+      Math.max(
+        1,
+        Math.min(
+          Number(process.env.ACCOUNT_SETUP_HOURS || 72),
+          168
+        )
+      );
+
+    const client =
+      await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const requestResult =
+        await client.query(
+          `
+          SELECT *
+          FROM customer_access_requests
+          WHERE id=$1
+          FOR UPDATE
+          `,
+          [req.params.id]
+        );
+
+      if (!requestResult.rowCount) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({
+          error: "customer_request_not_found"
+        });
+      }
+
+      const request =
+        requestResult.rows[0];
+
+      if (request.status !== "pending") {
+        await client.query("ROLLBACK");
+        return res.status(409).json({
+          error: "customer_request_already_reviewed"
+        });
+      }
+
+      const plan =
+        await client.query(
+          `SELECT code FROM plans
+           WHERE code=$1 AND is_active=TRUE
+           LIMIT 1`,
+          [planCode]
+        );
+
+      if (!plan.rowCount) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({
+          error: "invalid_plan"
+        });
+      }
+
+      const existingUser =
+        await client.query(
+          `SELECT id,status FROM users
+           WHERE LOWER(email)=LOWER($1)
+           LIMIT 1`,
+          [request.email]
+        );
+
+      if (existingUser.rowCount) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({
+          error: "email_already_registered"
+        });
+      }
+
+      const workspace =
+        await client.query(
+          `
+          INSERT INTO workspaces (name,status)
+          VALUES ($1,'active')
+          RETURNING id,name,status,created_at
+          `,
+          [request.workspace_name]
+        );
+
+      const user =
+        await client.query(
+          `
+          INSERT INTO users (
+            email,password_hash,display_name,status
+          )
+          VALUES ($1,NULL,$2,'disabled')
+          RETURNING id,email,display_name,status
+          `,
+          [
+            request.email,
+            request.display_name || null
+          ]
+        );
+
+      const workspaceId = workspace.rows[0].id;
+      const userId = user.rows[0].id;
+
+      await client.query(
+        `
+        INSERT INTO workspace_members (
+          workspace_id,user_id,role
+        )
+        VALUES ($1,$2,'owner')
+        `,
+        [workspaceId,userId]
+      );
+
+      await client.query(
+        `
+        INSERT INTO workspace_subscriptions (
+          workspace_id,
+          plan_code,
+          status,
+          current_period_start,
+          current_period_end
+        )
+        VALUES (
+          $1,$2,'active',
+          date_trunc('month',NOW()),
+          date_trunc('month',NOW()) + INTERVAL '1 month'
+        )
+        `,
+        [workspaceId,planCode]
+      );
+
+      await client.query(
+        `
+        INSERT INTO workspace_usage_monthly (
+          workspace_id,period_start,dm_sent_count
+        )
+        VALUES (
+          $1,
+          date_trunc('month',NOW())::date,
+          0
+        )
+        `,
+        [workspaceId]
+      );
+
+      const setup =
+        await client.query(
+          `
+          INSERT INTO account_setup_tokens (
+            user_id,
+            workspace_id,
+            token_hash,
+            expires_at,
+            created_by_user_id
+          )
+          VALUES (
+            $1,$2,$3,
+            NOW() + ($4::double precision * INTERVAL '1 hour'),
+            $5
+          )
+          RETURNING expires_at
+          `,
+          [
+            userId,
+            workspaceId,
+            setupTokenHash(rawToken),
+            setupHours,
+            req.auth.userId
+          ]
+        );
+
+      await client.query(
+        `
+        UPDATE customer_access_requests
+        SET
+          status='approved',
+          reviewed_by_user_id=$1,
+          reviewed_at=NOW(),
+          provisioned_workspace_id=$2,
+          provisioned_user_id=$3,
+          updated_at=NOW()
+        WHERE id=$4
+        `,
+        [
+          req.auth.userId,
+          workspaceId,
+          userId,
+          request.id
+        ]
+      );
+
+      await client.query("COMMIT");
+
+      await safeAuditLog({
+        workspaceId,
+        userId: req.auth.userId,
+        eventType: "admin.customer_approved",
+        targetType: "customer_access_request",
+        targetId: request.id,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent"),
+        metadata: {
+          customerEmail: request.email,
+          ownerUserId: userId,
+          planCode
+        }
+      });
+
+      return res.json({
+        approved: true,
+        workspace: workspace.rows[0],
+        owner: user.rows[0],
+        planCode,
+        setupUrl: setupUrl(rawToken),
+        setupExpiresAt: setup.rows[0].expires_at
+      });
+    } catch (error) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {}
+
+      console.error(
+        "Customer approval failed:",
+        error.message
+      );
+      return res.sendStatus(500);
+    } finally {
+      client.release();
+    }
+  }
+);
+
+router.post(
+  "/customer-requests/:id/reject",
+  async (req, res) => {
+    try {
+      const reason =
+        String(req.body?.reason || "")
+          .trim()
+          .slice(0, 1000);
+
+      const result =
+        await pool.query(
+          `
+          UPDATE customer_access_requests
+          SET
+            status='rejected',
+            reviewed_by_user_id=$1,
+            reviewed_at=NOW(),
+            rejection_reason=$2,
+            updated_at=NOW()
+          WHERE id=$3 AND status='pending'
+          RETURNING id,email,workspace_name,status
+          `,
+          [
+            req.auth.userId,
+            reason || null,
+            req.params.id
+          ]
+        );
+
+      if (!result.rowCount) {
+        return res.status(404).json({
+          error: "pending_customer_request_not_found"
+        });
+      }
+
+      await safeAuditLog({
+        workspaceId: null,
+        userId: req.auth.userId,
+        eventType: "admin.customer_rejected",
+        targetType: "customer_access_request",
+        targetId: result.rows[0].id,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent"),
+        metadata: {
+          customerEmail: result.rows[0].email,
+          workspaceName: result.rows[0].workspace_name,
+          reason: reason || null
+        }
+      });
+
+      return res.json({
+        rejected: true,
+        request: result.rows[0]
+      });
+    } catch (error) {
+      console.error(
+        "Customer rejection failed:",
+        error.message
+      );
+      return res.sendStatus(500);
+    }
+  }
+);
+
+router.post(
+  "/customer-requests/:id/setup-link",
+  async (req, res) => {
+    const rawToken =
+      crypto.randomBytes(32).toString("base64url");
+
+    const setupHours =
+      Math.max(
+        1,
+        Math.min(
+          Number(process.env.ACCOUNT_SETUP_HOURS || 72),
+          168
+        )
+      );
+
+    const client =
+      await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const result =
+        await client.query(
+          `
+          SELECT
+            car.id,
+            car.email,
+            car.provisioned_user_id AS user_id,
+            car.provisioned_workspace_id AS workspace_id,
+            u.status AS user_status
+          FROM customer_access_requests car
+          JOIN users u
+            ON u.id=car.provisioned_user_id
+          WHERE
+            car.id=$1
+            AND car.status='approved'
+          FOR UPDATE OF car,u
+          `,
+          [req.params.id]
+        );
+
+      if (!result.rowCount) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({
+          error: "approved_customer_request_not_found"
+        });
+      }
+
+      const row = result.rows[0];
+
+      if (row.user_status === "active") {
+        await client.query("ROLLBACK");
+        return res.status(409).json({
+          error: "account_already_activated"
+        });
+      }
+
+      await client.query(
+        `
+        UPDATE account_setup_tokens
+        SET consumed_at=COALESCE(consumed_at,NOW())
+        WHERE
+          user_id=$1
+          AND consumed_at IS NULL
+        `,
+        [row.user_id]
+      );
+
+      const setup =
+        await client.query(
+          `
+          INSERT INTO account_setup_tokens (
+            user_id,workspace_id,token_hash,
+            expires_at,created_by_user_id
+          )
+          VALUES (
+            $1,$2,$3,
+            NOW() + ($4::double precision * INTERVAL '1 hour'),
+            $5
+          )
+          RETURNING expires_at
+          `,
+          [
+            row.user_id,
+            row.workspace_id,
+            setupTokenHash(rawToken),
+            setupHours,
+            req.auth.userId
+          ]
+        );
+
+      await client.query("COMMIT");
+
+      await safeAuditLog({
+        workspaceId: row.workspace_id,
+        userId: req.auth.userId,
+        eventType: "admin.account_setup_link_reissued",
+        targetType: "user",
+        targetId: row.user_id,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent"),
+        metadata: {
+          customerEmail: row.email
+        }
+      });
+
+      return res.json({
+        setupUrl: setupUrl(rawToken),
+        setupExpiresAt: setup.rows[0].expires_at
+      });
+    } catch (error) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {}
+      console.error(
+        "Setup link regeneration failed:",
+        error.message
+      );
+      return res.sendStatus(500);
+    } finally {
+      client.release();
+    }
+  }
+);
+
 router.get(
   "/workspaces",
   async (req, res) => {

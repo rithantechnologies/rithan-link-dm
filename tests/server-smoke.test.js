@@ -37,6 +37,12 @@ const port =
 const base =
   `http://127.0.0.1:${port}`;
 
+const allowedOrigin =
+  new URL(
+    process.env.DASHBOARD_ORIGIN ||
+    "https://api.rithantechnologies.com"
+  ).origin;
+
 let child;
 let stdout = "";
 let stderr = "";
@@ -409,6 +415,7 @@ test(
     for (
       const path of [
         "/api/admin/overview",
+        "/api/admin/customer-requests?status=pending&limit=5",
         "/api/admin/workspaces?limit=5",
         "/api/admin/errors?limit=5",
         "/api/admin/system",
@@ -567,6 +574,77 @@ test(
     assert.equal(
       response.status,
       401
+    );
+  }
+);
+
+test(
+  "customer onboarding public endpoints validate input safely",
+  async () => {
+    const headers = {
+      "content-type": "application/json",
+      origin: allowedOrigin
+    };
+
+    const requestAccess =
+      await fetch(
+        `${base}/api/auth/request-access`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            email: "invalid",
+            workspaceName: ""
+          })
+        }
+      );
+
+    assert.equal(
+      requestAccess.status,
+      400
+    );
+
+    const setupLookup =
+      await fetch(
+        `${base}/api/auth/setup-account/validate`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            token: "not-a-real-token"
+          })
+        }
+      );
+
+    assert.equal(
+      setupLookup.status,
+      404
+    );
+  }
+);
+
+test(
+  "system admin approval rejects an unknown request",
+  async () => {
+    const response =
+      await fetch(
+        `${base}/api/admin/customer-requests/00000000-0000-0000-0000-000000000000/approve`,
+        {
+          method: "POST",
+          headers: {
+            cookie: adminCookie,
+            "content-type": "application/json",
+            origin: allowedOrigin
+          },
+          body: JSON.stringify({
+            planCode: "free"
+          })
+        }
+      );
+
+    assert.equal(
+      response.status,
+      404
     );
   }
 );

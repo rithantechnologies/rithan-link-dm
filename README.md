@@ -31,6 +31,8 @@ Instagram comment
 - Public-reply recovery
 - Token refresh scheduling
 - Session auth, CSRF/origin checks, login rate limiting
+- Admin-approved Early Access customer onboarding with one-time password setup links
+- Owner/Admin/Member workspace RBAC and team invitations
 - API mutation rate limiting
 - Health and readiness endpoints
 - Scheduled PostgreSQL backups and verification tooling

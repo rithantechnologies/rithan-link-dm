@@ -107,6 +107,149 @@
           id="loginError"
           class="form-error"
         ></p>
+
+        <button
+          id="showRequestAccess"
+          class="text-button login-secondary-action"
+          type="button"
+        >
+          Need access? Request an account
+        </button>
+      </form>
+
+      <form
+        id="requestAccessForm"
+        class="login-card hidden"
+      >
+        <span class="eyebrow dark">
+          EARLY ACCESS
+        </span>
+
+        <h2>Request a workspace</h2>
+
+        <p class="muted">
+          Tell us who you are. Your request will
+          be reviewed before an account is created.
+        </p>
+
+        <label class="field">
+          <span>Your name</span>
+          <input
+            id="requestDisplayName"
+            type="text"
+            maxlength="120"
+            autocomplete="name"
+            placeholder="Your name"
+          >
+        </label>
+
+        <label class="field">
+          <span>Work email</span>
+          <input
+            id="requestEmail"
+            type="email"
+            autocomplete="email"
+            placeholder="you@company.com"
+            required
+          >
+        </label>
+
+        <label class="field">
+          <span>Business / workspace name</span>
+          <input
+            id="requestWorkspaceName"
+            type="text"
+            maxlength="120"
+            placeholder="Your business"
+            required
+          >
+        </label>
+
+        <label class="field">
+          <span>How will you use Rithan Link DM?</span>
+          <textarea
+            id="requestUseCase"
+            rows="4"
+            maxlength="1500"
+            placeholder="Example: Send product links when customers comment PRICE."
+          ></textarea>
+        </label>
+
+        <button
+          id="requestAccessButton"
+          class="button primary full"
+          type="submit"
+        >
+          Submit request
+        </button>
+
+        <p
+          id="requestAccessMessage"
+          class="form-message"
+        ></p>
+
+        <button
+          id="backToLogin"
+          class="text-button login-secondary-action"
+          type="button"
+        >
+          Back to sign in
+        </button>
+      </form>
+
+      <form
+        id="setupAccountForm"
+        class="login-card hidden"
+      >
+        <span class="eyebrow dark">
+          ACCOUNT SETUP
+        </span>
+
+        <h2>Set your password</h2>
+
+        <p
+          id="setupAccountIntro"
+          class="muted"
+        >
+          Finish activating your workspace.
+        </p>
+
+        <label class="field">
+          <span>New password</span>
+          <input
+            id="setupPassword"
+            type="password"
+            autocomplete="new-password"
+            minlength="12"
+            placeholder="At least 12 characters"
+            required
+          >
+        </label>
+
+        <label class="field">
+          <span>Confirm password</span>
+          <input
+            id="setupPasswordConfirm"
+            type="password"
+            autocomplete="new-password"
+            minlength="12"
+            placeholder="Repeat password"
+            required
+          >
+        </label>
+
+        <button
+          id="setupAccountButton"
+          class="button primary full"
+          type="submit"
+        >
+          Activate account
+        </button>
+
+        <p
+          id="setupAccountMessage"
+          class="form-message"
+        ></p>
       </form>
     </section>
   </main>

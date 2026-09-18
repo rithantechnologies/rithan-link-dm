@@ -91,10 +91,139 @@ function toast(message) {
 
 
 
-async function handleLaunchParams() {
-  const params = new URLSearchParams(window.location.search);
+function showAuthCard(card) {
+  const cards = {
+    login: $("#loginForm"),
+    request: $("#requestAccessForm"),
+    setup: $("#setupAccountForm")
+  };
 
-  const invite = params.get("invite");
+  Object.entries(cards).forEach(([key, element]) => {
+    element?.classList.toggle("hidden", key !== card);
+  });
+}
+
+async function requestAccess(event) {
+  event.preventDefault();
+
+  const button = $("#requestAccessButton");
+  const message = $("#requestAccessMessage");
+  button.disabled = true;
+  message.textContent = "";
+
+  try {
+    await api("/api/auth/request-access", {
+      method: "POST",
+      body: JSON.stringify({
+        displayName: $("#requestDisplayName").value.trim(),
+        email: $("#requestEmail").value.trim(),
+        workspaceName: $("#requestWorkspaceName").value.trim(),
+        useCase: $("#requestUseCase").value.trim()
+      })
+    });
+
+    $("#requestAccessForm").reset();
+    message.textContent =
+      "Request received. We’ll review it and send your secure account setup link after approval.";
+  } catch (error) {
+    message.textContent =
+      error.body?.error === "valid_email_and_workspace_required"
+        ? "Enter a valid work email and workspace name."
+        : "Could not submit your request. Please try again.";
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function prepareAccountSetup(token) {
+  showAuthCard("setup");
+  const intro = $("#setupAccountIntro");
+  const message = $("#setupAccountMessage");
+  const button = $("#setupAccountButton");
+
+  message.textContent = "";
+  button.disabled = true;
+
+  try {
+    const result = await api(
+      "/api/auth/setup-account/validate",
+      {
+        method: "POST",
+        body: JSON.stringify({ token })
+      }
+    );
+    const account = result.account || {};
+    $("#setupAccountForm").dataset.token = token;
+    $("#setupAccountForm").dataset.email = account.email || "";
+    intro.textContent =
+      `Activate ${account.workspace_name || "your workspace"} for ${account.email || "your account"}.`;
+    button.disabled = false;
+  } catch {
+    intro.textContent = "This setup link is invalid or has expired.";
+    message.textContent =
+      "Ask the Rithan Link DM administrator for a new setup link.";
+  }
+}
+
+async function setupAccount(event) {
+  event.preventDefault();
+
+  const form = $("#setupAccountForm");
+  const token = form.dataset.token || "";
+  const email = form.dataset.email || "";
+  const password = $("#setupPassword").value;
+  const confirm = $("#setupPasswordConfirm").value;
+  const button = $("#setupAccountButton");
+  const message = $("#setupAccountMessage");
+
+  if (password.length < 12) {
+    message.textContent = "Password must be at least 12 characters.";
+    return;
+  }
+
+  if (password !== confirm) {
+    message.textContent = "Passwords do not match.";
+    return;
+  }
+
+  button.disabled = true;
+  message.textContent = "";
+
+  try {
+    await api("/api/auth/setup-account", {
+      method: "POST",
+      body: JSON.stringify({ token, password })
+    });
+
+    history.replaceState({}, "", window.location.pathname);
+    form.reset();
+    showAuthCard("login");
+    $("#loginEmail").value = email;
+    $("#loginError").textContent =
+      "Account activated. Sign in with your new password.";
+  } catch (error) {
+    message.textContent =
+      error.body?.error === "password_too_short"
+        ? "Password must be at least 12 characters."
+        : "This setup link is invalid or has expired.";
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function handleLaunchParams() {
+  const params =
+    new URLSearchParams(
+      window.location.search
+    );
+
+  const hashParams =
+    new URLSearchParams(
+      window.location.hash.replace(/^#/, "")
+    );
+
+  const invite =
+    hashParams.get("invite");
   if (invite) {
     try {
       const result = await api("/api/settings/team/invitations/accept", {
@@ -140,6 +269,17 @@ async function handleLaunchParams() {
 }
 
 async function boot() {
+  const setupToken =
+    new URLSearchParams(
+      window.location.hash.replace(/^#/, "")
+    ).get("setup");
+
+  if (setupToken) {
+    showLogin();
+    await prepareAccountSetup(setupToken);
+    return;
+  }
+
   try {
     state.me =
       await api("/api/auth/me");
@@ -159,6 +299,7 @@ async function boot() {
 function showLogin() {
   $("#appView").classList.add("hidden");
   $("#loginView").classList.remove("hidden");
+  showAuthCard("login");
 }
 
 
@@ -3191,6 +3332,30 @@ async function connectInstagram() {
 }
 
 function bindEvents() {
+
+  $("#showRequestAccess")
+    ?.addEventListener(
+      "click",
+      () => showAuthCard("request")
+    );
+
+  $("#backToLogin")
+    ?.addEventListener(
+      "click",
+      () => showAuthCard("login")
+    );
+
+  $("#requestAccessForm")
+    ?.addEventListener(
+      "submit",
+      requestAccess
+    );
+
+  $("#setupAccountForm")
+    ?.addEventListener(
+      "submit",
+      setupAccount
+    );
 
   $("#workspaceSettingsForm")
     ?.addEventListener(

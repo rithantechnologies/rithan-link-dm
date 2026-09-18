@@ -554,3 +554,64 @@ tbody tr:hover {
 #page-system > .panel {
   margin-top: 18px;
 }
+
+.onboarding-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.compact-select {
+  min-width: 96px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: #fff;
+}
+
+.request-use-case {
+  max-width: 340px;
+  white-space: normal;
+  line-height: 1.45;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, .55);
+}
+
+.modal-card {
+  width: min(640px, 100%);
+  padding: 24px;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 24px 80px rgba(15, 23, 42, .22);
+}
+
+.modal-card h2 {
+  margin: 0 0 8px;
+}
+
+.modal-card p {
+  margin: 0 0 18px;
+  color: var(--muted);
+}
+
+.modal-card .field {
+  display: grid;
+  gap: 7px;
+  margin-bottom: 18px;
+}
+
+.modal-card .field input {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}

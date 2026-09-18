@@ -2086,3 +2086,22 @@ textarea:focus {
     width: 100%;
   }
 }
+
+.login-secondary-action {
+  width: 100%;
+  margin-top: 14px;
+  text-align: center;
+}
+
+.form-message {
+  min-height: 20px;
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.login-card textarea {
+  width: 100%;
+  resize: vertical;
+}
