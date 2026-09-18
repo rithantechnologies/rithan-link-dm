@@ -74,7 +74,7 @@ before(async () => {
     spawn(
       process.env
         .PRODUCTION_NODE ||
-        "/usr/bin/node",
+        process.execPath,
       [
         "server.js"
       ],
