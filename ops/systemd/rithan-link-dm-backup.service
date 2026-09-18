@@ -9,11 +9,13 @@ User=rithanlinkdm
 Group=rithanlinkdm
 WorkingDirectory=/var/www/rithan-link-dm-api
 EnvironmentFile=/var/www/rithan-link-dm-api/.env
+Environment=POSTGRES_BACKUP_DIR=/var/backups/rithan-link-dm/postgres
+Environment=POSTGRES_BACKUP_RETENTION_DAYS=14
 ExecStart=/usr/bin/node /var/www/rithan-link-dm-api/scripts/backup-postgres.js
-ExecStartPost=/usr/bin/node /var/www/rithan-link-dm-api/scripts/verify-postgres-backup.js
+
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectSystem=full
+ProtectSystem=strict
 ProtectHome=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
@@ -21,3 +23,4 @@ ProtectControlGroups=true
 RestrictSUIDSGID=true
 LockPersonality=true
 UMask=0077
+ReadWritePaths=/var/backups/rithan-link-dm/postgres

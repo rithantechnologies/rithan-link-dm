@@ -1,11 +1,10 @@
 [Unit]
-Description=Rithan Link DM Daily PostgreSQL Backup
+Description=Rithan Link DM Daily PostgreSQL Backup Timer
 
 [Timer]
-OnCalendar=*-*-* 02:15:00
-Persistent=true
+OnCalendar=*-*-* 02:30:00
 RandomizedDelaySec=10m
-Unit=rithan-link-dm-backup.service
+Persistent=true
 
 [Install]
 WantedBy=timers.target
