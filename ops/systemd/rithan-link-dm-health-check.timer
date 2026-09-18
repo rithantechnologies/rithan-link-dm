@@ -1,0 +1,12 @@
+[Unit]
+Description=Rithan Link DM Production Health Check Timer
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+RandomizedDelaySec=30
+Persistent=true
+Unit=rithan-link-dm-health-check.service
+
+[Install]
+WantedBy=timers.target

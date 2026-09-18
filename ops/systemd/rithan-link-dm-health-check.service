@@ -1,0 +1,22 @@
+[Unit]
+Description=Rithan Link DM Production Health Check
+After=network.target rithan-link-dm.service rithan-link-dm-worker.service
+Wants=rithan-link-dm.service rithan-link-dm-worker.service
+
+[Service]
+Type=oneshot
+User=rithanlinkdm
+Group=rithanlinkdm
+WorkingDirectory=/var/www/rithan-link-dm-api
+EnvironmentFile=/var/www/rithan-link-dm-api/.env
+ExecStart=/usr/bin/node /var/www/rithan-link-dm-api/scripts/production-health-check.js
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+UMask=0077

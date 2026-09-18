@@ -8,7 +8,8 @@
     "smoke": "/usr/bin/node --test --test-concurrency=1 tests/server-smoke.test.js",
     "migrate": "/usr/bin/node scripts/migrate.js",
     "backup": "/usr/bin/node scripts/backup-postgres.js",
-    "backup:verify": "/usr/bin/node scripts/verify-postgres-backup.js"
+    "backup:verify": "/usr/bin/node scripts/verify-postgres-backup.js",
+    "healthcheck": "/usr/bin/node scripts/production-health-check.js"
   },
   "keywords": [],
   "author": "",
