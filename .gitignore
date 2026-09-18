@@ -21,3 +21,6 @@ var/backups/
 .DS_Store
 *.swp
 *.swo
+
+# Known broken/throwaway snapshots
+*-broken-*
