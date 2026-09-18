@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1"
+  >
+  <title>Rithan Link DM Admin</title>
+  <link
+    rel="stylesheet"
+    href="/admin/styles.css"
+  >
+</head>
+<body>
+  <div
+    id="unauthorizedView"
+    class="center-card hidden"
+  >
+    <div class="brand-mark">R</div>
+    <h1>Admin access required</h1>
+    <p>
+      Sign in with an authorized system
+      administrator account.
+    </p>
+    <a
+      class="button primary"
+      href="/dashboard/"
+    >
+      Open customer dashboard
+    </a>
+  </div>
+
+  <div
+    id="adminApp"
+    class="shell hidden"
+  >
+    <aside class="sidebar">
+      <a
+        class="brand"
+        href="/admin/"
+      >
+        <span class="brand-mark">R</span>
+        <span>
+          <strong>Rithan Link DM</strong>
+          <small>Admin console</small>
+        </span>
+      </a>
+
+      <nav class="nav">
+        <button
+          class="nav-item active"
+          data-page="overview"
+        >
+          Overview
+        </button>
+
+        <button
+          class="nav-item"
+          data-page="workspaces"
+        >
+          Customers
+        </button>
+
+        <button
+          class="nav-item"
+          data-page="errors"
+        >
+          Errors
+        </button>
+
+        <button
+          class="nav-item"
+          data-page="system"
+        >
+          System
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <a
+          href="/dashboard/"
+          class="nav-link"
+        >
+          ← Customer dashboard
+        </a>
+        <span id="adminIdentity">—</span>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">
+            Operations
+          </p>
+          <h1 id="pageTitle">
+            Overview
+          </h1>
+          <p id="pageSubtitle">
+            Customer and automation health.
+          </p>
+        </div>
+
+        <button
+          id="refreshButton"
+          class="button"
+        >
+          Refresh
+        </button>
+      </header>
+
+      <section
+        id="page-overview"
+        class="page"
+      >
+        <div
+          id="overviewCards"
+          class="metric-grid"
+        ></div>
+
+        <div class="panel-grid">
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>Attention required</h2>
+                <p>
+                  Customer-impacting conditions.
+                </p>
+              </div>
+            </div>
+            <div id="attentionList"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>Platform status</h2>
+                <p>
+                  Live service heartbeat summary.
+                </p>
+              </div>
+            </div>
+            <div id="overviewSystem"></div>
+          </section>
+        </div>
+      </section>
+
+      <section
+        id="page-workspaces"
+        class="page hidden"
+      >
+        <section class="panel">
+          <div class="panel-head wrap">
+            <div>
+              <h2>Customers & workspaces</h2>
+              <p>
+                Search by workspace or owner email.
+              </p>
+            </div>
+
+            <input
+              id="workspaceSearch"
+              class="search"
+              type="search"
+              placeholder="Search customers..."
+              autocomplete="off"
+            >
+          </div>
+
+          <div
+            id="workspaceTable"
+            class="table-wrap"
+          ></div>
+        </section>
+      </section>
+
+      <section
+        id="page-errors"
+        class="page hidden"
+      >
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Recent delivery errors</h2>
+              <p>
+                Latest DM and public-reply failures.
+              </p>
+            </div>
+          </div>
+
+          <div
+            id="errorTable"
+            class="table-wrap"
+          ></div>
+        </section>
+      </section>
+
+      <section
+        id="page-system"
+        class="page hidden"
+      >
+        <div class="panel-grid">
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>Services</h2>
+                <p>
+                  API and worker health.
+                </p>
+              </div>
+            </div>
+            <div id="systemServices"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>Instagram tokens</h2>
+                <p>
+                  Connected account token lifecycle.
+                </p>
+              </div>
+            </div>
+            <div id="systemTokens"></div>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div
+    id="drawerBackdrop"
+    class="drawer-backdrop hidden"
+  ></div>
+
+  <aside
+    id="workspaceDrawer"
+    class="drawer hidden"
+    aria-label="Workspace details"
+  >
+    <div class="drawer-head">
+      <div>
+        <p class="eyebrow">
+          Customer support
+        </p>
+        <h2 id="drawerTitle">
+          Workspace
+        </h2>
+      </div>
+
+      <button
+        id="closeDrawer"
+        class="icon-button"
+        aria-label="Close"
+      >
+        ×
+      </button>
+    </div>
+
+    <div
+      id="drawerBody"
+      class="drawer-body"
+    ></div>
+  </aside>
+
+  <div
+    id="toast"
+    class="toast hidden"
+  ></div>
+
+  <script src="/admin/app.js"></script>
+</body>
+</html>

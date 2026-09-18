@@ -5,6 +5,7 @@ const state = {
   activity: [],
   activitySummary: {},
   billingUsage: null,
+  sessions: [],
   analytics: null,
   analyticsRange: "7d",
   media: [],
@@ -175,6 +176,14 @@ function showApp() {
       user.displayName ||
       "there"
     }`;
+
+  if (
+    user.isSystemAdmin === true
+  ) {
+    $("#adminNav")
+      ?.classList
+      .remove("hidden");
+  }
 }
 
 
@@ -224,6 +233,7 @@ async function loadDashboard() {
 
 
 function renderAll() {
+  renderOnboarding();
   renderStats();
   renderPlanUsage();
   renderPlans();
@@ -430,6 +440,169 @@ function renderPlanUsage() {
   `;
 }
 
+
+function renderOnboarding() {
+  const root =
+    $("#onboardingChecklist");
+
+  if (!root) {
+    return;
+  }
+
+  const hasConnectedAccount =
+    state.accounts.some(
+      account =>
+        account.status === "connected"
+    );
+
+  const hasAutomation =
+    state.automations.length > 0;
+
+  const hasActiveAutomation =
+    state.automations.some(
+      automation =>
+        automation.active
+    );
+
+  const hasSentDm =
+    Number(
+      state.activitySummary.dmSent || 0
+    ) > 0;
+
+  const steps = [
+    {
+      label:
+        "Connect Instagram",
+      done:
+        hasConnectedAccount,
+      action:
+        "instagram"
+    },
+    {
+      label:
+        "Create your first automation",
+      done:
+        hasAutomation,
+      action:
+        "automation"
+    },
+    {
+      label:
+        "Activate the automation",
+      done:
+        hasActiveAutomation,
+      action:
+        "automations"
+    },
+    {
+      label:
+        "Send your first successful DM",
+      done:
+        hasSentDm,
+      action:
+        "activity"
+    }
+  ];
+
+  if (
+    steps.every(
+      step => step.done
+    )
+  ) {
+    root.classList.add(
+      "hidden"
+    );
+
+    return;
+  }
+
+  root.classList.remove(
+    "hidden"
+  );
+
+  const complete =
+    steps.filter(
+      step => step.done
+    ).length;
+
+  root.innerHTML = `
+    <div class="onboarding-head">
+      <div>
+        <span class="eyebrow">
+          GET STARTED
+        </span>
+        <h3>
+          Launch your first automation
+        </h3>
+        <p>
+          ${complete} of ${steps.length}
+          setup steps complete.
+        </p>
+      </div>
+
+      <strong class="onboarding-progress">
+        ${Math.round(
+          complete /
+          steps.length *
+          100
+        )}%
+      </strong>
+    </div>
+
+    <div class="onboarding-steps">
+      ${steps.map(
+        (step, index) => `
+          <button
+            class="onboarding-step ${
+              step.done
+                ? "done"
+                : ""
+            }"
+            data-onboarding-action="${
+              step.action
+            }"
+            type="button"
+          >
+            <span class="onboarding-check">
+              ${
+                step.done
+                  ? "✓"
+                  : index + 1
+              }
+            </span>
+            <span>
+              ${escapeHtml(
+                step.label
+              )}
+            </span>
+          </button>
+        `
+      ).join("")}
+    </div>
+  `;
+
+  $$('[data-onboarding-action]')
+    .forEach(button => {
+      button.addEventListener(
+        "click",
+        () => {
+          const action =
+            button.dataset
+              .onboardingAction;
+
+          if (
+            action ===
+            "automation"
+          ) {
+            openAutomationModal();
+            return;
+          }
+
+          changePage(action);
+        }
+      );
+    });
+}
 
 function renderStats() {
   const connected =
@@ -758,12 +931,42 @@ function renderAccounts() {
 
   root.innerHTML =
     state.accounts.map(account => {
-      const expiry =
+      const expiryDate =
         account.token_expires_at
           ? new Date(
               account.token_expires_at
-            ).toLocaleDateString()
+            )
+          : null;
+
+      const expiry =
+        expiryDate
+          ? expiryDate.toLocaleDateString()
           : "—";
+
+      const expiryDays =
+        expiryDate
+          ? Math.ceil(
+              (
+                expiryDate.getTime() -
+                Date.now()
+              ) /
+              86400000
+            )
+          : null;
+
+      const health =
+        account.status ===
+        "reauth_required"
+          ? "Reconnect required"
+          : account.status !==
+              "connected"
+            ? "Disconnected"
+            : expiryDays !== null &&
+                expiryDays <= 14
+              ? "Token expiring soon"
+              : !account.comments_subscribed_at
+                ? "Webhook not confirmed"
+                : "Healthy";
 
       return `
         <article class="account-card">
@@ -803,10 +1006,54 @@ function renderAccounts() {
                 }
               </strong>
             </div>
+
+            <div class="account-meta-row">
+              <span>Connection health</span>
+              <strong>
+                ${escapeHtml(health)}
+              </strong>
+            </div>
+
+            <div class="account-meta-row">
+              <span>Last token refresh</span>
+              <strong>
+                ${
+                  account.token_last_refreshed_at
+                    ? escapeHtml(
+                        new Date(
+                          account.token_last_refreshed_at
+                        ).toLocaleDateString()
+                      )
+                    : "—"
+                }
+              </strong>
+            </div>
           </div>
+
+          ${
+            account.status !== "connected"
+              ? `
+                <button
+                  class="button secondary full"
+                  data-reconnect-instagram="${account.id}"
+                  type="button"
+                >
+                  Reconnect Instagram
+                </button>
+              `
+              : ""
+          }
         </article>
       `;
     }).join("");
+
+  $$('[data-reconnect-instagram]')
+    .forEach(button => {
+      button.addEventListener(
+        "click",
+        connectInstagram
+      );
+    });
 }
 
 
@@ -1597,6 +1844,122 @@ function renderPlans() {
 }
 
 
+function renderSettings() {
+  const user = state.me?.user || {};
+  const workspace = state.me?.workspace || {};
+
+  $("#settingsEmail").textContent = user.email || "—";
+  $("#settingsWorkspace").textContent = workspace.name || "—";
+  $("#settingsRole").textContent = workspace.role || "—";
+
+  const root = $("#sessionList");
+
+  if (!state.sessions.length) {
+    root.innerHTML = `<div class="empty-state">No active sessions.</div>`;
+    return;
+  }
+
+  root.innerHTML = state.sessions.map(session => `
+    <div class="settings-session-row">
+      <div>
+        <strong>${session.is_current ? "Current session" : "Active session"}</strong>
+        <span>
+          Last seen ${escapeHtml(formatActivityTime(session.last_seen_at))}
+          · expires ${escapeHtml(formatActivityTime(session.expires_at))}
+        </span>
+      </div>
+      <span class="badge ${session.is_current ? "success" : "muted"}">
+        ${session.is_current ? "This device" : "Active"}
+      </span>
+    </div>`).join("");
+}
+
+async function loadSettings() {
+  try {
+    const result = await api("/api/auth/sessions");
+    state.sessions = result.sessions || [];
+    renderSettings();
+  } catch {
+    toast("Could not load account settings.");
+  }
+}
+
+async function changePassword(event) {
+  event.preventDefault();
+
+  const currentPassword = $("#currentPassword").value;
+  const newPassword = $("#newPassword").value;
+  const confirmNewPassword = $("#confirmNewPassword").value;
+
+  if (newPassword.length < 12) {
+    toast("New password must be at least 12 characters.");
+    return;
+  }
+
+  if (newPassword !== confirmNewPassword) {
+    toast("New passwords do not match.");
+    return;
+  }
+
+  try {
+    const result = await api("/api/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify({
+        currentPassword,
+        newPassword
+      })
+    });
+
+    $("#changePasswordForm").reset();
+    await loadSettings();
+
+    toast(
+      result.revokedOtherSessions
+        ? `Password changed. ${result.revokedOtherSessions} other session(s) signed out.`
+        : "Password changed successfully."
+    );
+  } catch (error) {
+    const code = error.body?.error;
+
+    if (code === "current_password_incorrect") {
+      toast("Current password is incorrect.");
+      return;
+    }
+
+    if (code === "password_too_short") {
+      toast("New password must be at least 12 characters.");
+      return;
+    }
+
+    if (code === "password_must_change") {
+      toast("Choose a different new password.");
+      return;
+    }
+
+    toast("Could not change password.");
+  }
+}
+
+async function revokeOtherSessions() {
+  try {
+    const result = await api("/api/auth/sessions/revoke-others", {
+      method: "POST",
+      body: JSON.stringify({})
+    });
+
+    await loadSettings();
+
+    toast(
+      result.revokedSessions
+        ? `${result.revokedSessions} other session(s) signed out.`
+        : "No other active sessions."
+    );
+  } catch {
+    toast("Could not sign out other sessions.");
+  }
+}
+
+
 function changePage(page) {
   state.currentPage = page;
 
@@ -1641,6 +2004,11 @@ function changePage(page) {
     plans: [
       "Plans",
       "Compare your workspace limits and upgrade options."
+    ],
+
+    settings: [
+      "Settings",
+      "Manage account security and active sessions."
     ]
   };
 
@@ -1667,6 +2035,10 @@ function changePage(page) {
     loadAnalytics(
       state.analyticsRange
     );
+  }
+
+  if (page === "settings") {
+    loadSettings();
   }
 }
 
@@ -2375,6 +2747,18 @@ async function connectInstagram() {
 }
 
 function bindEvents() {
+
+  $("#changePasswordForm")
+    ?.addEventListener(
+      "submit",
+      changePassword
+    );
+
+  $("#revokeOtherSessions")
+    ?.addEventListener(
+      "click",
+      revokeOtherSessions
+    );
 
   $("#connectInstagramButton")
     ?.addEventListener(

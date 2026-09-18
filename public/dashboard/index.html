@@ -171,6 +171,23 @@
           <span class="nav-icon">◇</span>
           Plans
         </button>
+
+        <button
+          class="nav-item"
+          data-page="settings"
+        >
+          <span class="nav-icon">⚙</span>
+          Settings
+        </button>
+
+        <a
+          id="adminNav"
+          class="nav-item nav-link-item hidden"
+          href="/admin/"
+        >
+          <span class="nav-icon">◆</span>
+          Admin
+        </a>
       </nav>
 
       <div class="sidebar-bottom">
@@ -269,6 +286,11 @@
               Create automation
             </button>
           </div>
+
+          <section
+            id="onboardingChecklist"
+            class="panel onboarding-panel hidden"
+          ></section>
 
           <div class="stats-grid">
             <article class="stat-card">
@@ -830,6 +852,132 @@
               usage. They do not override Meta or
               Instagram API restrictions.
             </p>
+          </div>
+        </section>
+
+
+        <!-- SETTINGS -->
+        <section
+          id="page-settings"
+          class="page hidden"
+        >
+          <div class="section-toolbar">
+            <div>
+              <h2>Settings</h2>
+              <p>
+                Manage your account security and
+                active sessions.
+              </p>
+            </div>
+          </div>
+
+          <div class="settings-grid">
+            <section class="panel settings-panel">
+              <div class="panel-header">
+                <div>
+                  <h3>Account</h3>
+                  <p>
+                    Your Rithan Link DM profile.
+                  </p>
+                </div>
+              </div>
+
+              <div class="settings-details">
+                <div>
+                  <span>Email</span>
+                  <strong id="settingsEmail">—</strong>
+                </div>
+
+                <div>
+                  <span>Workspace</span>
+                  <strong id="settingsWorkspace">—</strong>
+                </div>
+
+                <div>
+                  <span>Role</span>
+                  <strong id="settingsRole">—</strong>
+                </div>
+              </div>
+            </section>
+
+            <section class="panel settings-panel">
+              <div class="panel-header">
+                <div>
+                  <h3>Change password</h3>
+                  <p>
+                    Minimum 12 characters. Other
+                    sessions are signed out after a
+                    successful change.
+                  </p>
+                </div>
+              </div>
+
+              <form
+                id="changePasswordForm"
+                class="settings-form"
+              >
+                <label class="field">
+                  <span>Current password</span>
+                  <input
+                    id="currentPassword"
+                    type="password"
+                    autocomplete="current-password"
+                    required
+                  >
+                </label>
+
+                <label class="field">
+                  <span>New password</span>
+                  <input
+                    id="newPassword"
+                    type="password"
+                    autocomplete="new-password"
+                    minlength="12"
+                    required
+                  >
+                </label>
+
+                <label class="field">
+                  <span>Confirm new password</span>
+                  <input
+                    id="confirmNewPassword"
+                    type="password"
+                    autocomplete="new-password"
+                    minlength="12"
+                    required
+                  >
+                </label>
+
+                <button
+                  class="button primary"
+                  type="submit"
+                >
+                  Change password
+                </button>
+              </form>
+            </section>
+
+            <section class="panel settings-panel settings-sessions">
+              <div class="panel-header settings-session-header">
+                <div>
+                  <h3>Active sessions</h3>
+                  <p>
+                    Review where your account is
+                    currently signed in.
+                  </p>
+                </div>
+
+                <button
+                  id="revokeOtherSessions"
+                  class="button secondary"
+                  type="button"
+                >
+                  Sign out other sessions
+                </button>
+              </div>
+
+              <div id="sessionList"></div>
+            </section>
           </div>
         </section>
 

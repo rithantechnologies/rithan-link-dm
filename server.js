@@ -39,6 +39,9 @@ const analyticsRouter =
 const billingRouter =
   require("./routes/billing");
 
+const adminRouter =
+  require("./routes/admin");
+
 const metaComplianceRouter =
   require("./routes/meta-compliance");
 
@@ -228,11 +231,26 @@ app.use(
 );
 
 app.use(
+  "/api/admin",
+  adminRouter
+);
+
+app.use(
   "/dashboard",
   express.static(
     require("path").join(
       __dirname,
       "public/dashboard"
+    )
+  )
+);
+
+app.use(
+  "/admin",
+  express.static(
+    require("path").join(
+      __dirname,
+      "public/admin"
     )
   )
 );

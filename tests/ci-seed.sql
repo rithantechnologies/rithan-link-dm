@@ -54,3 +54,41 @@ VALUES (
   'connected'
 )
 ON CONFLICT DO NOTHING;
+
+
+INSERT INTO users (
+  id,
+  email,
+  display_name,
+  status
+)
+VALUES (
+  '00000000-0000-4000-8000-000000000003',
+  'ci-admin@example.invalid',
+  'CI Admin',
+  'active'
+)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO workspace_members (
+  workspace_id,
+  user_id,
+  role
+)
+VALUES (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000003',
+  'owner'
+)
+ON CONFLICT (
+  workspace_id,
+  user_id
+) DO NOTHING;
+
+INSERT INTO system_admins (
+  user_id
+)
+VALUES (
+  '00000000-0000-4000-8000-000000000003'
+)
+ON CONFLICT (user_id) DO NOTHING;

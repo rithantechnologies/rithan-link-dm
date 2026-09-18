@@ -4,6 +4,7 @@ const crypto = require("crypto");
 const pool = require("../db");
 
 const {
+  hashPassword,
   verifyPassword
 } = require("../lib/password");
 
@@ -418,7 +419,11 @@ router.get(
           req.auth.email,
 
         displayName:
-          req.auth.displayName
+          req.auth.displayName,
+
+        isSystemAdmin:
+          req.auth.isSystemAdmin ===
+          true
       },
 
       workspace: {
@@ -432,6 +437,325 @@ router.get(
           req.auth.role
       }
     });
+  }
+);
+
+
+// --------------------------------------------------
+// GET /api/auth/sessions
+// --------------------------------------------------
+
+router.get(
+  "/sessions",
+  requireAuth,
+
+  async (req, res) => {
+    try {
+      const result =
+        await pool.query(
+          `
+          SELECT
+            id,
+            created_at,
+            last_seen_at,
+            expires_at,
+
+            (
+              id = $2
+            ) AS is_current
+
+          FROM user_sessions
+
+          WHERE
+            user_id = $1
+            AND revoked_at IS NULL
+            AND expires_at > NOW()
+
+          ORDER BY
+            is_current DESC,
+            last_seen_at DESC
+          `,
+          [
+            req.auth.userId,
+            req.auth.sessionId
+          ]
+        );
+
+      return res.json({
+        sessions:
+          result.rows
+      });
+
+    } catch (error) {
+      console.error(
+        "List sessions failed:",
+        error.message
+      );
+
+      return res.sendStatus(500);
+    }
+  }
+);
+
+
+// --------------------------------------------------
+// POST /api/auth/change-password
+// --------------------------------------------------
+
+router.post(
+  "/change-password",
+  requireAuth,
+
+  async (req, res) => {
+    try {
+      const currentPassword =
+        String(
+          req.body
+            ?.currentPassword || ""
+        );
+
+      const newPassword =
+        String(
+          req.body
+            ?.newPassword || ""
+        );
+
+      if (
+        !currentPassword ||
+        !newPassword
+      ) {
+        return res.status(400).json({
+          error:
+            "current_and_new_password_required"
+        });
+      }
+
+      if (
+        newPassword.length < 12
+      ) {
+        return res.status(400).json({
+          error:
+            "password_too_short"
+        });
+      }
+
+      if (
+        currentPassword ===
+        newPassword
+      ) {
+        return res.status(400).json({
+          error:
+            "password_must_change"
+        });
+      }
+
+      const userResult =
+        await pool.query(
+          `
+          SELECT password_hash
+          FROM users
+          WHERE id = $1
+          LIMIT 1
+          `,
+          [
+            req.auth.userId
+          ]
+        );
+
+      const valid =
+        await verifyPassword(
+          currentPassword,
+          userResult.rows[0]
+            ?.password_hash
+        );
+
+      if (!valid) {
+        return res.status(401).json({
+          error:
+            "current_password_incorrect"
+        });
+      }
+
+      const passwordHash =
+        await hashPassword(
+          newPassword
+        );
+
+      const client =
+        await pool.connect();
+
+      let revokedOtherSessions = 0;
+
+      try {
+        await client.query(
+          "BEGIN"
+        );
+
+        await client.query(
+          `
+          UPDATE users
+          SET
+            password_hash = $1,
+            updated_at = NOW()
+          WHERE id = $2
+          `,
+          [
+            passwordHash,
+            req.auth.userId
+          ]
+        );
+
+        const revoked =
+          await client.query(
+            `
+            UPDATE user_sessions
+            SET revoked_at = NOW()
+            WHERE
+              user_id = $1
+              AND id <> $2
+              AND revoked_at IS NULL
+            `,
+            [
+              req.auth.userId,
+              req.auth.sessionId
+            ]
+          );
+
+        revokedOtherSessions =
+          revoked.rowCount;
+
+        await client.query(
+          "COMMIT"
+        );
+
+      } catch (error) {
+        try {
+          await client.query(
+            "ROLLBACK"
+          );
+        } catch {}
+
+        throw error;
+
+      } finally {
+        client.release();
+      }
+
+      await safeAuditLog({
+        workspaceId:
+          req.auth.workspaceId,
+
+        userId:
+          req.auth.userId,
+
+        eventType:
+          "auth.password_changed",
+
+        targetType:
+          "user",
+
+        targetId:
+          req.auth.userId,
+
+        ipAddress:
+          req.ip,
+
+        userAgent:
+          req.get(
+            "user-agent"
+          ),
+
+        metadata: {
+          revokedOtherSessions
+        }
+      });
+
+      return res.json({
+        changed: true,
+        revokedOtherSessions
+      });
+
+    } catch (error) {
+      console.error(
+        "Change password failed:",
+        error.message
+      );
+
+      return res.sendStatus(500);
+    }
+  }
+);
+
+
+// --------------------------------------------------
+// POST /api/auth/sessions/revoke-others
+// --------------------------------------------------
+
+router.post(
+  "/sessions/revoke-others",
+  requireAuth,
+
+  async (req, res) => {
+    try {
+      const result =
+        await pool.query(
+          `
+          UPDATE user_sessions
+          SET revoked_at = NOW()
+          WHERE
+            user_id = $1
+            AND id <> $2
+            AND revoked_at IS NULL
+          `,
+          [
+            req.auth.userId,
+            req.auth.sessionId
+          ]
+        );
+
+      await safeAuditLog({
+        workspaceId:
+          req.auth.workspaceId,
+
+        userId:
+          req.auth.userId,
+
+        eventType:
+          "auth.sessions_revoked",
+
+        targetType:
+          "user",
+
+        targetId:
+          req.auth.userId,
+
+        ipAddress:
+          req.ip,
+
+        userAgent:
+          req.get(
+            "user-agent"
+          ),
+
+        metadata: {
+          revokedSessions:
+            result.rowCount
+        }
+      });
+
+      return res.json({
+        revokedSessions:
+          result.rowCount
+      });
+
+    } catch (error) {
+      console.error(
+        "Revoke sessions failed:",
+        error.message
+      );
+
+      return res.sendStatus(500);
+    }
   }
 );
 

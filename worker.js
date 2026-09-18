@@ -195,10 +195,57 @@ const worker =
     }
   );
 
+async function writeWorkerHeartbeat() {
+  try {
+    await pool.query(
+      `
+      INSERT INTO service_heartbeats (
+        service_name,
+        heartbeat_at,
+        metadata
+      )
+      VALUES (
+        'instagram-worker',
+        NOW(),
+        $1::jsonb
+      )
+      ON CONFLICT (service_name)
+      DO UPDATE SET
+        heartbeat_at = NOW(),
+        metadata = EXCLUDED.metadata
+      `,
+      [
+        JSON.stringify({
+          queueName,
+          pid:
+            process.pid,
+          concurrency: 5
+        })
+      ]
+    );
+
+  } catch (error) {
+    console.error(
+      "Worker heartbeat failed:",
+      error.message
+    );
+  }
+}
+
+const heartbeatTimer =
+  setInterval(
+    writeWorkerHeartbeat,
+    30000
+  );
+
+heartbeatTimer.unref?.();
+
 worker.on("ready", () => {
   console.log(
     `Instagram worker ready: ${queueName}`
   );
+
+  writeWorkerHeartbeat();
 });
 
 worker.on(
@@ -238,6 +285,10 @@ async function shutdown(signal) {
   }
 
   shuttingDown = true;
+
+  clearInterval(
+    heartbeatTimer
+  );
 
   console.log(
     `${signal} received. Closing worker...`

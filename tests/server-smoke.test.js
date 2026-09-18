@@ -7,6 +7,14 @@ const {
 const assert =
   require("node:assert/strict");
 
+require("dotenv").config();
+
+const crypto =
+  require("node:crypto");
+
+const pool =
+  require("../db");
+
 const {
   spawn
 } = require("node:child_process");
@@ -32,6 +40,8 @@ const base =
 let child;
 let stdout = "";
 let stderr = "";
+let adminSessionId = null;
+let adminCookie = "";
 
 function wait(ms) {
   return new Promise(
@@ -113,61 +123,146 @@ before(async () => {
   );
 
   await waitForServer();
+
+  const admin =
+    await pool.query(
+      `
+      SELECT
+        u.id AS user_id,
+        wm.workspace_id
+
+      FROM system_admins sa
+
+      JOIN users u
+        ON u.id = sa.user_id
+
+      JOIN workspace_members wm
+        ON wm.user_id = u.id
+
+      ORDER BY
+        wm.created_at ASC
+
+      LIMIT 1
+      `
+    );
+
+  assert.equal(
+    admin.rowCount,
+    1,
+    "Smoke test requires one system admin"
+  );
+
+  const token =
+    crypto
+      .randomBytes(32)
+      .toString("hex");
+
+  const tokenHash =
+    crypto
+      .createHash("sha256")
+      .update(token)
+      .digest("hex");
+
+  const session =
+    await pool.query(
+      `
+      INSERT INTO user_sessions (
+        user_id,
+        active_workspace_id,
+        session_token_hash,
+        expires_at
+      )
+      VALUES (
+        $1,
+        $2,
+        $3,
+        NOW() + INTERVAL '15 minutes'
+      )
+      RETURNING id
+      `,
+      [
+        admin.rows[0].user_id,
+        admin.rows[0].workspace_id,
+        tokenHash
+      ]
+    );
+
+  adminSessionId =
+    session.rows[0].id;
+
+  adminCookie =
+    `${
+      process.env.SESSION_COOKIE_NAME ||
+      "rithan_session"
+    }=${token}`;
 });
 
 after(async () => {
-  if (
-    !child ||
-    child.exitCode !== null
-  ) {
-    return;
-  }
-
-  const exited =
-    new Promise(
-      (resolve, reject) => {
-        const timer =
-          setTimeout(
-            () => {
-              reject(
-                new Error(
-                  "Temporary API did not shut down cleanly"
-                )
+  try {
+    if (
+      child &&
+      child.exitCode === null
+    ) {
+      const exited =
+        new Promise(
+          (resolve, reject) => {
+            const timer =
+              setTimeout(
+                () => {
+                  reject(
+                    new Error(
+                      "Temporary API did not shut down cleanly"
+                    )
+                  );
+                },
+                15000
               );
-            },
-            15000
-          );
 
-        child.once(
-          "exit",
-          (code, signal) => {
-            clearTimeout(
-              timer
+            child.once(
+              "exit",
+              (code, signal) => {
+                clearTimeout(
+                  timer
+                );
+
+                resolve({
+                  code,
+                  signal
+                });
+              }
             );
-
-            resolve({
-              code,
-              signal
-            });
           }
         );
-      }
-    );
 
-  child.kill("SIGTERM");
+      child.kill("SIGTERM");
 
-  const result =
-    await exited;
+      const result =
+        await exited;
 
-  assert.equal(
-    result.code,
-    0,
-    [
-      "Temporary API exit code was not zero.",
-      stdout,
-      stderr
-    ].join("\n")
-  );
+      assert.equal(
+        result.code,
+        0,
+        [
+          "Temporary API exit code was not zero.",
+          stdout,
+          stderr
+        ].join("\n")
+      );
+    }
+
+  } finally {
+    if (adminSessionId) {
+      await pool.query(
+        `
+        DELETE FROM user_sessions
+        WHERE id = $1
+        `,
+        [adminSessionId]
+      );
+    }
+
+    await pool.end();
+  }
 });
 
 test(
@@ -264,6 +359,76 @@ test(
       ),
       false
     );
+  }
+);
+
+test(
+  "admin console is served",
+  async () => {
+    const response =
+      await fetch(
+        `${base}/admin/`
+      );
+
+    assert.equal(
+      response.status,
+      200
+    );
+  }
+);
+
+test(
+  "system admin can load operational APIs",
+  async () => {
+    const headers = {
+      cookie:
+        adminCookie
+    };
+
+    const me =
+      await fetch(
+        `${base}/api/auth/me`,
+        {
+          headers
+        }
+      );
+
+    assert.equal(
+      me.status,
+      200
+    );
+
+    assert.equal(
+      (
+        await me.json()
+      ).user
+        .isSystemAdmin,
+      true
+    );
+
+    for (
+      const path of [
+        "/api/admin/overview",
+        "/api/admin/workspaces?limit=5",
+        "/api/admin/errors?limit=5",
+        "/api/admin/system",
+        "/api/auth/sessions"
+      ]
+    ) {
+      const response =
+        await fetch(
+          `${base}${path}`,
+          {
+            headers
+          }
+        );
+
+      assert.equal(
+        response.status,
+        200,
+        path
+      );
+    }
   }
 );
 
