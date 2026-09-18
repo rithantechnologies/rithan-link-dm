@@ -77,4 +77,9 @@ ufw status verbose || true
 echo "== 9. Final schedules =="
 systemctl list-timers   'rithan-link-dm-*'   certbot.timer   --all   --no-pager
 
-echo "Release-gate root checks completed."
+if [[ "${certbot_rc}" -ne 0 ]]; then
+  echo "Release-gate checks completed with a Certbot failure." >&2
+  exit "${certbot_rc}"
+fi
+
+echo "Release-gate root checks completed successfully."
