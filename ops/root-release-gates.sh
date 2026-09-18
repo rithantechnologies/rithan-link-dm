@@ -21,13 +21,21 @@ install -o root -g root -m 644   "${APP_DIR}/ops/systemd/rithan-link-dm-backup.s
 
 install -o root -g root -m 644   "${APP_DIR}/ops/systemd/rithan-link-dm-backup.timer"   /etc/systemd/system/rithan-link-dm-backup.timer
 
+install -o root -g root -m 644   "${APP_DIR}/ops/systemd/rithan-link-dm-health-check.service"   /etc/systemd/system/rithan-link-dm-health-check.service
+
+install -o root -g root -m 644   "${APP_DIR}/ops/systemd/rithan-link-dm-health-check.timer"   /etc/systemd/system/rithan-link-dm-health-check.timer
+
 systemctl daemon-reload
-systemctl enable --now   rithan-link-dm-backup.timer
+systemctl enable --now   rithan-link-dm-backup.timer   rithan-link-dm-health-check.timer
 
 echo "== 3. Immediate backup =="
 systemctl start   rithan-link-dm-backup.service
 
 systemctl show   -p Result   -p ExecMainStatus   rithan-link-dm-backup.service
+
+systemctl start   rithan-link-dm-health-check.service
+
+systemctl show   -p Result   -p ExecMainStatus   rithan-link-dm-health-check.service
 
 echo "== 4. Restore drill =="
 sudo -u postgres dropdb   --if-exists   "${RESTORE_DB}"

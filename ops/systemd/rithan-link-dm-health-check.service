@@ -9,6 +9,7 @@ User=rithanlinkdm
 Group=rithanlinkdm
 WorkingDirectory=/var/www/rithan-link-dm-api
 EnvironmentFile=/var/www/rithan-link-dm-api/.env
+Environment=POSTGRES_BACKUP_DIR=/var/backups/rithan-link-dm/postgres
 ExecStart=/usr/bin/node /var/www/rithan-link-dm-api/scripts/production-health-check.js
 NoNewPrivileges=true
 PrivateTmp=true
