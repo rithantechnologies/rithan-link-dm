@@ -54,9 +54,16 @@ if [[ "${restore_rc}" -ne 0 ]]; then
 fi
 
 echo "== 5. Relevant certificate renewal dry-run =="
-certbot renew   --cert-name api.rithantechnologies.com   --dry-run
+certbot_rc=0
 
-systemctl reset-failed   certbot.service || true
+certbot renew   --cert-name api.rithantechnologies.com   --dry-run   || certbot_rc=$?
+
+if [[ "${certbot_rc}" -eq 0 ]]; then
+  systemctl reset-failed     certbot.service || true
+else
+  echo "Certbot dry-run failed with code ${certbot_rc}." >&2
+  journalctl     -u certbot.service     -n 80     --no-pager     || true
+fi
 
 echo "== 6. Nginx config test =="
 nginx -t
