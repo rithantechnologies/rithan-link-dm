@@ -11,6 +11,8 @@ if [[ "${EUID}" -ne 0 ]]; then
   exit 1
 fi
 
+cd "${APP_DIR}"
+
 echo "== 1. Backup directory =="
 install -d   -o rithanlinkdm   -g rithanlinkdm   -m 700   "${BACKUP_ROOT}"   "${BACKUP_DIR}"
 
