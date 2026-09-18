@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: rithan_link_dm_ci
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d rithan_link_dm_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_NAME: rithan_link_dm_ci
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      REDIS_HOST: 127.0.0.1
+      REDIS_PORT: 6379
+      INSTAGRAM_QUEUE_NAME: instagram-comment-jobs-ci
+      META_VERIFY_TOKEN: ci-verify-token
+      META_APP_SECRET: ci-meta-app-secret
+      INSTAGRAM_APP_ID: ci-app-id
+      INSTAGRAM_APP_SECRET: ci-instagram-app-secret
+      INSTAGRAM_REDIRECT_URI: https://example.invalid/auth/instagram/callback
+      INSTAGRAM_API_VERSION: v26.0
+      TOKEN_ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
+      TOKEN_ENCRYPTION_KEY_VERSION: 1
+      DASHBOARD_ORIGIN: http://127.0.0.1:3195
+      SESSION_COOKIE_SECURE: "false"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply schema
+        run: |
+          for file in migrations/*.sql; do
+            echo "Applying $file"
+            PGPASSWORD="$DB_PASSWORD" psql               -h "$DB_HOST"               -U "$DB_USER"               -d "$DB_NAME"               -v ON_ERROR_STOP=1               -f "$file"
+          done
+
+      - name: Baseline migration ledger
+        run: node scripts/migrate.js --baseline-existing
+
+      - name: Seed CI fixture
+        run: |
+          PGPASSWORD="$DB_PASSWORD" psql             -h "$DB_HOST"             -U "$DB_USER"             -d "$DB_NAME"             -v ON_ERROR_STOP=1             -f tests/ci-seed.sql
+
+      - name: Syntax check
+        run: npm run check
+
+      - name: Test
+        run: npm test
+
+      - name: Dependency audit
+        run: npm audit --omit=dev --audit-level=high
