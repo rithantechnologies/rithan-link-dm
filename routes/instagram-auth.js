@@ -383,6 +383,16 @@ router.get("/callback", async (req, res) => {
       );
     }
 
+    await client.query(
+      `INSERT INTO instagram_delivery_safety (
+         instagram_account_id
+       )
+       VALUES ($1)
+       ON CONFLICT (instagram_account_id)
+       DO NOTHING`,
+      [instagramAccountId]
+    );
+
     await client.query("COMMIT");
 
     console.log(

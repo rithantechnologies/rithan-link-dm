@@ -30,6 +30,9 @@ const authRouter =
 const instagramAccountsRouter =
   require("./routes/instagram-accounts");
 
+const instagramSafetyRouter =
+  require("./routes/instagram-safety");
+
 const activityRouter =
   require("./routes/activity");
 
@@ -221,7 +224,17 @@ app.use(
 
 app.use(
   "/api/instagram/accounts",
+  instagramSafetyRouter
+);
+
+app.use(
+  "/api/instagram/accounts",
   instagramAccountsRouter
+);
+
+app.use(
+  "/api/instagram/accounts",
+  instagramSafetyRouter
 );
 
 app.use(

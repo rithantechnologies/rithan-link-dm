@@ -194,7 +194,14 @@ const worker =
 
             backoff: {
               type: "exponential",
-              delay: 5000
+              delay:
+                Math.max(
+                  10000,
+                  Number(
+                    process.env.INSTAGRAM_RETRY_BASE_DELAY_MS ||
+                    60000
+                  )
+                )
             }
           }
         );

@@ -110,6 +110,88 @@ async function accountBelongsToWorkspace(
   return result.rowCount === 1;
 }
 
+async function accountPreflightReady(
+  instagramAccountId,
+  workspace
+) {
+  const result = await pool.query(
+    `
+    SELECT
+      latest.status,
+      latest.token_expires_at,
+      latest.comments_subscribed_at,
+      safety.mode,
+      safety.paused_until,
+      safety.manual_preflight_confirmed_at
+    FROM instagram_accounts ia
+    JOIN LATERAL (
+      SELECT
+        ic.workspace_id,
+        ic.status,
+        ic.token_expires_at,
+        ic.comments_subscribed_at,
+        ic.connected_at,
+        ic.created_at
+      FROM instagram_connections ic
+      WHERE ic.instagram_account_id = ia.id
+      ORDER BY ic.connected_at DESC, ic.created_at DESC
+      LIMIT 1
+    ) latest ON TRUE
+    LEFT JOIN instagram_delivery_safety safety
+      ON safety.instagram_account_id = ia.id
+    WHERE ia.id = $1
+      AND latest.workspace_id = $2
+    LIMIT 1
+    `,
+    [instagramAccountId, workspace]
+  );
+
+  const row = result.rows[0];
+
+  if (!row) {
+    return {
+      ready: false,
+      reason: "instagram_account_not_found"
+    };
+  }
+
+  const externalAccessConfirmed =
+    String(
+      process.env.META_EXTERNAL_CUSTOMER_ACCESS_CONFIRMED ||
+      ""
+    ).toLowerCase() === "true";
+
+  const tokenHealthy =
+    row.token_expires_at &&
+    (
+      new Date(row.token_expires_at).getTime() -
+      Date.now()
+    ) > 14 * 86400000;
+
+  const notPaused =
+    !row.paused_until ||
+    new Date(row.paused_until).getTime() <= Date.now();
+
+  const checks = {
+    connected: row.status === "connected",
+    commentsWebhookSubscribed:
+      Boolean(row.comments_subscribed_at),
+    tokenHealthy: Boolean(tokenHealthy),
+    safetyPolicyCreated: Boolean(row.mode),
+    safetyNotPaused: notPaused,
+    manualPreflightConfirmed:
+      Boolean(row.manual_preflight_confirmed_at),
+    metaExternalCustomerAccessConfirmed:
+      externalAccessConfirmed
+  };
+
+  return {
+    ready: Object.values(checks).every(Boolean),
+    mode: row.mode || null,
+    checks
+  };
+}
+
 
 // --------------------------------------------------
 // GET /api/automations
@@ -291,6 +373,28 @@ router.post("/", requireWorkspaceEditor, async (req, res) => {
       return res.status(404).json({
         error:
           "instagram_account_not_found"
+      });
+    }
+
+    const preflight =
+      await accountPreflightReady(
+        instagramAccountId,
+        workspace
+      );
+
+    if (!preflight.ready) {
+      return res.status(409).json({
+        error: "instagram_preflight_required",
+        checks: preflight.checks || null
+      });
+    }
+
+    if (
+      preflight.mode === "pilot" &&
+      publicReplyEnabled
+    ) {
+      return res.status(409).json({
+        error: "public_reply_disabled_in_pilot_mode"
       });
     }
 
@@ -637,6 +741,30 @@ router.patch("/:id", requireWorkspaceEditor, async (req, res) => {
         error:
           "public_reply_template_required"
       });
+    }
+
+    if (active) {
+      const preflight =
+        await accountPreflightReady(
+          current.instagram_account_id,
+          workspace
+        );
+
+      if (!preflight.ready) {
+        return res.status(409).json({
+          error: "instagram_preflight_required",
+          checks: preflight.checks || null
+        });
+      }
+
+      if (
+        preflight.mode === "pilot" &&
+        publicReplyEnabled
+      ) {
+        return res.status(409).json({
+          error: "public_reply_disabled_in_pilot_mode"
+        });
+      }
     }
 
     if (

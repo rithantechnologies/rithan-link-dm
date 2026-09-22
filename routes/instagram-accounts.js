@@ -37,6 +37,12 @@ const {
   requireWorkspaceEditor
 } = require("../lib/workspace-policy");
 
+const {
+  ABS_HOURLY_DM_MAX,
+  ABS_DAILY_DM_MAX,
+  getSafetySnapshot
+} = require("../lib/instagram-safety");
+
 const router = express.Router();
 
 const API_VERSION =
@@ -66,7 +72,18 @@ router.get("/", async (req, res) => {
         ic.token_last_refreshed_at,
         ic.comments_subscribed_at,
         ic.reauth_required_at,
-        ic.connected_at
+        ic.connected_at,
+
+        safety.mode AS safety_mode,
+        safety.promoted_at AS safety_promoted_at,
+        safety.hourly_dm_limit,
+        safety.daily_dm_limit,
+        safety.hourly_public_reply_limit,
+        safety.daily_public_reply_limit,
+        safety.commenter_cooldown_seconds,
+        safety.paused_until,
+        safety.pause_reason,
+        safety.manual_preflight_confirmed_at
 
       FROM instagram_accounts ia
 
@@ -93,6 +110,9 @@ router.get("/", async (req, res) => {
         LIMIT 1
       ) ic
         ON TRUE
+
+      LEFT JOIN instagram_delivery_safety safety
+        ON safety.instagram_account_id = ia.id
 
       ORDER BY
         ic.connected_at DESC
@@ -136,7 +156,11 @@ async function getWorkspaceAccount(
       ic.token_iv,
       ic.token_auth_tag,
       ic.token_key_version,
-      ic.token_expires_at
+      ic.token_expires_at,
+      ic.token_last_refreshed_at,
+      ic.comments_subscribed_at,
+      ic.connected_at,
+      ic.last_error
 
     FROM instagram_accounts ia
 
@@ -148,7 +172,10 @@ async function getWorkspaceAccount(
         ic.token_auth_tag,
         ic.token_key_version,
         ic.token_expires_at,
+        ic.token_last_refreshed_at,
+        ic.comments_subscribed_at,
         ic.connected_at,
+        ic.last_error,
         ic.created_at
 
       FROM instagram_connections ic

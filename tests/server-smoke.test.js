@@ -440,6 +440,109 @@ test(
 );
 
 test(
+  "Instagram safety and preflight APIs are readable",
+  async () => {
+    const headers = {
+      cookie:
+        adminCookie
+    };
+
+    const accountsResponse =
+      await fetch(
+        `${base}/api/instagram/accounts`,
+        {
+          headers
+        }
+      );
+
+    assert.equal(
+      accountsResponse.status,
+      200
+    );
+
+    const accountsBody =
+      await accountsResponse.json();
+
+    assert.equal(
+      Array.isArray(
+        accountsBody.accounts
+      ),
+      true
+    );
+
+    if (
+      accountsBody.accounts.length === 0
+    ) {
+      return;
+    }
+
+    const accountId =
+      accountsBody.accounts[0].id;
+
+    const safety =
+      await fetch(
+        `${base}/api/instagram/accounts/${accountId}/safety`,
+        {
+          headers
+        }
+      );
+
+    assert.equal(
+      safety.status,
+      200
+    );
+
+    const safetyBody =
+      await safety.json();
+
+    assert.ok(
+      safetyBody.policy
+    );
+
+    assert.ok(
+      safetyBody.effectiveDmLimits
+    );
+
+    const preflight =
+      await fetch(
+        `${base}/api/instagram/accounts/${accountId}/preflight`,
+        {
+          headers
+        }
+      );
+
+    assert.equal(
+      preflight.status,
+      200
+    );
+
+    const preflightBody =
+      await preflight.json();
+
+    assert.equal(
+      Array.isArray(
+        preflightBody.checks
+      ),
+      true
+    );
+
+    const metaAccess =
+      preflightBody.checks.find(
+        check =>
+          check.id ===
+          "meta_external_customer_access_confirmed"
+      );
+
+    assert.ok(metaAccess);
+
+    assert.equal(
+      metaAccess.pass,
+      false
+    );
+  }
+);
+
+test(
   "unauthenticated API access is rejected and not cached",
   async () => {
     const response =
