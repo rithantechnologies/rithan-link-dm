@@ -157,3 +157,39 @@ Approved but unclaimed accounts remain disabled. From **Admin > Onboarding > App
 Do not send raw passwords to customers. Administrators never need to know the customer's password.
 
 Public access requests are same-origin protected, covered by the global mutation limiter, and additionally capped at 10 newly recorded requests per source IP per hour.
+
+## Instagram customer safety preflight
+
+Do not launch an external customer until `GET /api/instagram/accounts/:id/preflight`
+returns `ready: true`.
+
+Before setting `META_EXTERNAL_CUSTOMER_ACCESS_CONFIRMED=true`, verify in the
+Meta App Dashboard that the app is Live, the business verification requirement
+is satisfied, and the Instagram Login permissions used by this service have the
+access level required for third-party customer accounts.
+
+The manual account preflight must also confirm:
+
+1. Instagram Account Status shows no current restriction.
+2. Two-factor authentication is enabled.
+3. No competing auto-DM/comment automation is connected to the account.
+
+Newly connected accounts automatically receive a pilot safety policy:
+- 30 successful private replies per rolling hour.
+- 100 successful private replies per rolling day.
+- 24-hour cooldown per commenter for the same automation.
+- Public automated replies disabled.
+- Automatic circuit breaking on rate-limit, auth, permission or restriction errors.
+Transient/network errors use delayed retries; permanent Meta errors do not retry.
+A safety pause creates a critical workspace notification and service event.
+Investigate the original Meta error before using the safety unpause action.
+
+After manual preflight, keep the account in pilot mode for at least 48 hours.
+The promotion endpoint refuses promotion if the pilot period is incomplete or
+delivery failures occurred. A clean promotion sets 60 DMs/hour and 250/day;
+public replies remain disabled until deliberately enabled later.
+
+For the first live campaign, use one account, one post/Reel and one exact-match
+keyword. Verify one genuine external comment produces exactly one DM, correct
+workspace/activity/usage records, no retry, and no duplicate delivery before
+announcing the campaign.
