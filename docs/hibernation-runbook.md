@@ -92,3 +92,11 @@ Do **not** force-mask these locally installed `/etc/systemd/system/` unit files:
 - Repo source and systemd templates belong in Git. Git checkout and GitHub `main` should point to the same approved SHA, with a clean worktree.
 - **No secrets, database dumps, access tokens, Redis snapshots or customer data in Git.** Preserve them through private backups and credential management.
 - Document the final state, exact SHA, backup time/verification, timers disabled and outstanding operational limitations in the shutdown handoff.
+
+## 2026-10-16 execution handoff — shutdown NOT completed
+
+Git and preservation work completed: fresh 2026-10-16 PostgreSQL archive (checksum and archive-readability verified), live systemd units and hardening snapshotted in Git, original deployment code unmodified.
+
+**VPS privilege blocker:** the connected `cashledger` Desktop Commander user does not have noninteractive authorization for `systemctl disable --now`. The requested shutdown was attempted only at the timer-disable stage and was rejected with `Access denied as the requested operation requires interactive authentication`. No processes were force-killed or systemd configurations modified.
+
+After the failed attempt, rechecked live state: API **active/enabled** on localhost port 3100, worker **inactive/enabled**, all five IG timers **active/enabled**. The service remains **not hibernated** until an authorized administrator executes the procedure above and confirms the final states. Do not interpret the Git archival commit as proof that the service was shut down.
