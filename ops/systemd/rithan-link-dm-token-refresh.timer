@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Rithan Link DM Instagram Token Refresh
+
+[Timer]
+OnCalendar=*-*-* 03:20:00
+RandomizedDelaySec=30m
+Persistent=true
+Unit=rithan-link-dm-token-refresh.service
+
+[Install]
+WantedBy=timers.target

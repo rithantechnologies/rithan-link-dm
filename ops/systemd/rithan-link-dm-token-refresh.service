@@ -1,0 +1,13 @@
+[Unit]
+Description=Rithan Link DM Instagram Token Refresh
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+
+WorkingDirectory=/var/www/rithan-link-dm-api
+EnvironmentFile=/var/www/rithan-link-dm-api/.env
+
+ExecStart=/usr/bin/node /var/www/rithan-link-dm-api/scripts/refresh-instagram-tokens.js

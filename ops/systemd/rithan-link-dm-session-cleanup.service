@@ -1,0 +1,11 @@
+[Unit]
+Description=Rithan Link DM User Session Cleanup
+After=network.target postgresql.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/var/www/rithan-link-dm-api
+ExecStart=/usr/bin/node /var/www/rithan-link-dm-api/scripts/cleanup-user-sessions.js
+
+[Install]
+WantedBy=multi-user.target

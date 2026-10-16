@@ -1,0 +1,14 @@
+[Unit]
+Description=Rithan Link DM Public Reply Recovery
+After=network-online.target redis-server.service postgresql.service
+Wants=network-online.target
+Requires=redis-server.service
+
+[Service]
+Type=oneshot
+User=root
+
+WorkingDirectory=/var/www/rithan-link-dm-api
+EnvironmentFile=/var/www/rithan-link-dm-api/.env
+
+ExecStart=/usr/bin/node /var/www/rithan-link-dm-api/scripts/recover-public-replies.js

@@ -1,0 +1,18 @@
+[Unit]
+Description=Rithan Link DM API
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/var/www/rithan-link-dm-api
+ExecStart=/usr/bin/node /var/www/rithan-link-dm-api/server.js
+
+EnvironmentFile=/var/www/rithan-link-dm-api/.env
+
+Restart=always
+RestartSec=5
+
+User=root
+
+[Install]
+WantedBy=multi-user.target

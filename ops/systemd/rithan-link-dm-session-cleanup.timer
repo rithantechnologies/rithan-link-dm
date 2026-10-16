@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Rithan Link DM Session Cleanup
+
+[Timer]
+OnCalendar=*-*-* 03:45:00
+RandomizedDelaySec=15m
+Persistent=true
+Unit=rithan-link-dm-session-cleanup.service
+
+[Install]
+WantedBy=timers.target
