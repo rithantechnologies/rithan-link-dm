@@ -93,10 +93,33 @@ Do **not** force-mask these locally installed `/etc/systemd/system/` unit files:
 - **No secrets, database dumps, access tokens, Redis snapshots or customer data in Git.** Preserve them through private backups and credential management.
 - Document the final state, exact SHA, backup time/verification, timers disabled and outstanding operational limitations in the shutdown handoff.
 
-## 2026-10-16 execution handoff — shutdown NOT completed
+## 2026-10-16 earlier execution attempt — privilege blocker (historical; superseded below)
 
 Git and preservation work completed: fresh 2026-10-16 PostgreSQL archive (checksum and archive-readability verified), live systemd units and hardening snapshotted in Git, original deployment code unmodified.
 
 **VPS privilege blocker:** the connected `cashledger` Desktop Commander user does not have noninteractive authorization for `systemctl disable --now`. The requested shutdown was attempted only at the timer-disable stage and was rejected with `Access denied as the requested operation requires interactive authentication`. No processes were force-killed or systemd configurations modified.
 
 After the failed attempt, rechecked live state: API **active/enabled** on localhost port 3100, worker **inactive/enabled**, all five IG timers **active/enabled**. The service remains **not hibernated** until an authorized administrator executes the procedure above and confirms the final states. Do not interpret the Git archival commit as proof that the service was shut down.
+
+## 2026-10-16 13:13 IST — shutdown completed and verified
+
+An authorized administrator ran `systemctl disable --now` for the API, worker and all five IG-specific timers, and `systemctl stop` for the health-check service. Systemd reported removal of all seven startup symlinks.
+
+An independent read-only check from the VPS on 2026-10-16 at 13:13:05 IST confirmed:
+
+| Unit | Runtime state | Enabled state |
+| --- | --- | --- |
+| `rithan-link-dm.service` | failed (no longer running; result=timeout) | disabled |
+| `rithan-link-dm-worker.service` | inactive/dead | disabled |
+| `rithan-link-dm-backup.timer` | inactive/dead | disabled |
+| `rithan-link-dm-health-check.timer` | inactive/dead | disabled |
+| `rithan-link-dm-public-recovery.timer` | inactive/dead | disabled |
+| `rithan-link-dm-session-cleanup.timer` | inactive/dead | disabled |
+| `rithan-link-dm-token-refresh.timer` | inactive/dead | disabled |
+| `rithan-link-dm-health-check.service` | failed (not running; result=signal) | static |
+
+No listener remained on TCP port 3100, and no IG API/worker/maintenance-process command paths were present in the process listing. A `failed` systemd result records the prior shutdown/termination outcome and does **not** indicate a running process. Disabled units are not scheduled to start at boot; an explicitly privileged manual start or unrelated external orchestration remains possible. No server reboot or unrelated service stop was performed as part of this verification.
+
+**Separate dependency warning:** `redis-server.service` was observed in `failed` state at 13:13 IST (state-change timestamp 12:21:05 IST), and port 6379 had no listener. This is **not** an IG restart request and was not modified or repaired here; investigate separately if other hosted applications require Redis. `nginx` and `postgresql` were active when checked.
+
+The protected PostgreSQL backup created earlier on 2026-10-16 remains outside Git; checksum/archive verification passed (not a full restore drill). To resume the IG service in the future, follow the controlled procedure above and explicitly review Redis, queued jobs and Meta tokens before enabling the worker/timers. The latest documentation-only Git commit contains this verified handoff; production application source was not modified.
